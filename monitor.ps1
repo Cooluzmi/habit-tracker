@@ -1,16 +1,44 @@
 # ================================================================
-# 🎯 CANLI SALDIRI MONITÖRÜ
+# 🎯 CANLI SALDIRI MONITÖRÜ (tek hesap)
 # GitHub Actions workflow'unu canlı takip eder, ASCII grafik gösterir
+#
+# Multi-account monitor için: monitor-multi.ps1
 # ================================================================
 
 param(
-    [string]$Token = "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",
-    [string]$Owner = "Forest123456789",
-    [string]$Repo = "loadtest",
+    [string]$Token = "",
+    [string]$Owner = "",
+    [string]$Repo = "",
     [int]$RefreshSec = 5
 )
 
 $ErrorActionPreference = "SilentlyContinue"
+
+# Secrets fallback (once .bat sonra .env)
+if (-not $Token -or -not $Owner -or -not $Repo) {
+    $secretsPath = $null
+    $tryBat = Join-Path $PSScriptRoot "config\secrets.bat"
+    $tryEnv = Join-Path $PSScriptRoot "config\secrets.env"
+    if (Test-Path $tryBat)      { $secretsPath = $tryBat }
+    elseif (Test-Path $tryEnv)  { $secretsPath = $tryEnv }
+
+    if ($secretsPath) {
+        $secrets = @{}
+        Get-Content $secretsPath | ForEach-Object {
+            if ($_ -match '^\s*set\s+"([^=]+)=([^"]*)"') {
+                $secrets[$matches[1].Trim()] = $matches[2].Trim()
+            }
+        }
+        if (-not $Token) { $Token = $secrets['GH1_TOKEN'] }
+        if (-not $Owner) { $Owner = $secrets['GH1_USER'] }
+        if (-not $Repo)  { $Repo  = $secrets['GH1_REPO'] }
+    }
+}
+
+if (-not $Token -or -not $Owner -or -not $Repo) {
+    Write-Host "HATA: Token/Owner/Repo eksik. config\secrets.env kontrol et." -ForegroundColor Red
+    exit 1
+}
 
 $headers = @{
     "Authorization" = "token $Token"

@@ -1,5 +1,30 @@
-  
-reports/*.json  
-reports/*.html  
-node_modules/  
-*.log  
+# Reports
+reports/*.json
+reports/*.html
+reports/*.txt
+!reports/.gitkeep
+
+# Node
+node_modules/
+
+# Logs
+*.log
+bot*_log.txt
+
+# ⚠️ CRITICAL: Secrets — asla commit'lenmemeli
+config/secrets.bat
+config/secrets.env
+config/secrets.local.env
+config/secrets.local.bat
+.env
+.env.local
+*.token
+*.pat
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
