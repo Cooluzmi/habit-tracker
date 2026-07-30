@@ -39,6 +39,11 @@ on:
         required: true
         default: '20'
         type: string
+      host_header:
+        description: 'Host header (Cloudflare bypass için - opsiyonel)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   loadtest:
@@ -103,6 +108,7 @@ jobs:
           VUS: ${{ inputs.vus_per_runner }}
           RPS: ${{ inputs.rps_per_runner }}
           BOT_ID: ${{ matrix.bot_id }}
+          HOST_HEADER: ${{ inputs.host_header }}
         run: |
           mkdir -p reports
           k6 run \
