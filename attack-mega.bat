@@ -28,22 +28,22 @@ if exist "config\secrets.bat" (
     exit /b 1
 )
 
-REM ---- Hesap 2 workflow ID kontrolü ----
+REM ---- Hesap kontrolleri ----
 set "GH2_READY=1"
-if "%GH2_WORKFLOW_ID%"=="" (
-    set "GH2_READY=0"
-)
+if "%GH2_WORKFLOW_ID%"=="" set "GH2_READY=0"
+set "GH3_READY=1"
+if "%GH3_WORKFLOW_ID%"=="" set "GH3_READY=0"
+set "GH4_READY=1"
+if "%GH4_WORKFLOW_ID%"=="" set "GH4_READY=0"
 
 echo.
 echo ╔══════════════════════════════════════════════════════╗
-echo ║   💥 MEGA ATTACK — MULTI-ACCOUNT ORCHESTRATOR        ║
+echo ║   MEGA ATTACK — MULTI-ACCOUNT ORCHESTRATOR           ║
 echo ║                                                      ║
-echo ║   Hesap 1: %GH1_USER%                       ║
-if "!GH2_READY!"=="1" (
-    echo ║   Hesap 2: %GH2_USER%   [READY]                     ║
-) else (
-    echo ║   Hesap 2: %GH2_USER%   [NOT SETUP - setup calistir]║
-)
+echo ║   Hesap 1: %GH1_USER%  [READY]              ║
+echo ║   Hesap 2: %GH2_USER%  [!GH2_READY!]        ║
+echo ║   Hesap 3: %GH3_USER%  [!GH3_READY!]        ║
+echo ║   Hesap 4: %GH4_USER%  [!GH4_READY!]        ║
 echo ╚══════════════════════════════════════════════════════╝
 echo.
 
@@ -152,27 +152,22 @@ REM ================ MENU 4: HESAP SAYISI ================
 echo.
 echo   [4/5] HESAP SAYISI
 echo.
-echo     [1] Sadece Hesap 1 (Forest123456789)      → !JOBS! bot
-if "!GH2_READY!"=="1" (
-    set /a "TOTAL_BOTS=!JOBS! * 2"
-    echo     [2] Iki hesap paralel                     → !TOTAL_BOTS! bot ^(MEGA^)
-) else (
-    echo     [2] Iki hesap paralel                     → NOT READY (setup-second-account.bat calistir)
-)
+set /a "B1=!JOBS!"
+set /a "B2=!JOBS! * 2"
+set /a "B3=!JOBS! * 3"
+set /a "B4=!JOBS! * 4"
+echo     [1] 1 hesap (Forest)              = !B1! bot
+echo     [2] 2 hesap (Forest+Stranic)      = !B2! bot
+echo     [3] 3 hesap (+Rapid)              = !B3! bot
+echo     [4] 4 hesap (TUM HESAPLAR)        = !B4! bot  MAX
 echo.
-set /p HESAP_SEC="Hesap sec (1-2) [2]: "
-if "%HESAP_SEC%"=="" set "HESAP_SEC=2"
+set /p HESAP_SEC="Hesap sayisi (1-4) [4]: "
+if "%HESAP_SEC%"=="" set "HESAP_SEC=4"
 
-set "USE_TWO_ACCOUNTS=0"
-if "%HESAP_SEC%"=="2" (
-    if "!GH2_READY!"=="1" (
-        set "USE_TWO_ACCOUNTS=1"
-    ) else (
-        echo   ⚠️  Hesap 2 hazir degil, tek hesap kullanilacak.
-        echo   Setup icin: setup-second-account.bat
-        set "USE_TWO_ACCOUNTS=0"
-    )
-)
+set "USE_ACCOUNTS=1"
+if "%HESAP_SEC%"=="2" set "USE_ACCOUNTS=2"
+if "%HESAP_SEC%"=="3" set "USE_ACCOUNTS=3"
+if "%HESAP_SEC%"=="4" set "USE_ACCOUNTS=4"
 
 REM ================ MENU 5: ONAY ================
 echo.
@@ -185,14 +180,12 @@ echo   Attack mode : !ATTACK_MODE!
 echo   Sure        : !DURATION!
 echo   VU per bot  : !VUS!
 echo   Bot / hesap : !JOBS!
-if "!USE_TWO_ACCOUNTS!"=="1" (
-    set /a "TOTAL_BOTS=!JOBS! * 2"
-    echo   Toplam bot  : !TOTAL_BOTS! (2 hesap paralel)
-    echo   Hesaplar    : %GH1_USER% + %GH2_USER%
-) else (
-    echo   Toplam bot  : !JOBS! (tek hesap)
-    echo   Hesap       : %GH1_USER%
-)
+set /a "TOTAL_BOTS=!JOBS! * !USE_ACCOUNTS!"
+echo   Toplam bot  : !TOTAL_BOTS! (!USE_ACCOUNTS! hesap paralel)
+echo   Hesaplar    : %GH1_USER%
+if !USE_ACCOUNTS! GEQ 2 echo                 + %GH2_USER%
+if !USE_ACCOUNTS! GEQ 3 echo                 + %GH3_USER%
+if !USE_ACCOUNTS! GEQ 4 echo                 + %GH4_USER%
 echo   RPS limit   : !RPS!
 echo ══════════════════════════════════════════════════════
 echo.
@@ -220,15 +213,28 @@ curl -sS -X POST ^
   "https://api.github.com/repos/%GH1_USER%/%GH1_REPO%/actions/workflows/%GH1_WORKFLOW_ID%/dispatches" ^
   -d "!PAYLOAD!" -o nul -w "     HTTP: %%{http_code}\n"
 
-REM ---- Hesap 2 trigger (varsa) ----
-if "!USE_TWO_ACCOUNTS!"=="1" (
-    echo.
-    echo   [Hesap 2] %GH2_USER% tetikleniyor...
-    curl -sS -X POST ^
-      -H "Authorization: token %GH2_TOKEN%" ^
-      -H "Accept: application/vnd.github+json" ^
-      "https://api.github.com/repos/%GH2_USER%/%GH2_REPO%/actions/workflows/%GH2_WORKFLOW_ID%/dispatches" ^
-      -d "!PAYLOAD!" -o nul -w "     HTTP: %%{http_code}\n"
+REM ---- Hesap 2 trigger ----
+if !USE_ACCOUNTS! GEQ 2 (
+    if "!GH2_READY!"=="1" (
+        echo   [Hesap 2] %GH2_USER% tetikleniyor...
+        curl -sS -X POST -H "Authorization: token %GH2_TOKEN%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%GH2_USER%/%GH2_REPO%/actions/workflows/%GH2_WORKFLOW_ID%/dispatches" -d "!PAYLOAD!" -o nul -w "     HTTP: %%{http_code}\n"
+    )
+)
+
+REM ---- Hesap 3 trigger ----
+if !USE_ACCOUNTS! GEQ 3 (
+    if "!GH3_READY!"=="1" (
+        echo   [Hesap 3] %GH3_USER% tetikleniyor...
+        curl -sS -X POST -H "Authorization: token %GH3_TOKEN%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%GH3_USER%/%GH3_REPO%/actions/workflows/%GH3_WORKFLOW_ID%/dispatches" -d "!PAYLOAD!" -o nul -w "     HTTP: %%{http_code}\n"
+    )
+)
+
+REM ---- Hesap 4 trigger ----
+if !USE_ACCOUNTS! GEQ 4 (
+    if "!GH4_READY!"=="1" (
+        echo   [Hesap 4] %GH4_USER% tetikleniyor...
+        curl -sS -X POST -H "Authorization: token %GH4_TOKEN%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%GH4_USER%/%GH4_REPO%/actions/workflows/%GH4_WORKFLOW_ID%/dispatches" -d "!PAYLOAD!" -o nul -w "     HTTP: %%{http_code}\n"
+    )
 )
 
 echo.
@@ -238,16 +244,12 @@ echo.
 echo   📊 Multi-account monitor aciliyor...
 timeout /t 3 /nobreak >nul
 
-if "!USE_TWO_ACCOUNTS!"=="1" (
-    powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0monitor-multi.ps1"
-) else (
-    powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0monitor.ps1"
-)
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0monitor-multi.ps1"
 
 echo.
 echo   Sonuclar:
 echo     https://github.com/%GH1_USER%/%GH1_REPO%/actions
-if "!USE_TWO_ACCOUNTS!"=="1" (
-    echo     https://github.com/%GH2_USER%/%GH2_REPO%/actions
-)
+if !USE_ACCOUNTS! GEQ 2 echo     https://github.com/%GH2_USER%/%GH2_REPO%/actions
+if !USE_ACCOUNTS! GEQ 3 echo     https://github.com/%GH3_USER%/%GH3_REPO%/actions
+if !USE_ACCOUNTS! GEQ 4 echo     https://github.com/%GH4_USER%/%GH4_REPO%/actions
 pause

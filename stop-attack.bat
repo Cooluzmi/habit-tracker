@@ -32,8 +32,20 @@ if not "%GH2_WORKFLOW_ID%"=="" (
     echo.
     echo [Hesap 2] %GH2_USER%/%GH2_REPO%
     call :nuke_account "%GH2_USER%" "%GH2_REPO%" "%GH2_TOKEN%"
-) else (
-    echo [Hesap 2] Setup edilmemis, atlaniyor.
+)
+
+REM ---- HESAP 3 ----
+if not "%GH3_WORKFLOW_ID%"=="" (
+    echo.
+    echo [Hesap 3] %GH3_USER%/%GH3_REPO%
+    call :nuke_account "%GH3_USER%" "%GH3_REPO%" "%GH3_TOKEN%"
+)
+
+REM ---- HESAP 4 ----
+if not "%GH4_WORKFLOW_ID%"=="" (
+    echo.
+    echo [Hesap 4] %GH4_USER%/%GH4_REPO%
+    call :nuke_account "%GH4_USER%" "%GH4_REPO%" "%GH4_TOKEN%"
 )
 
 echo.
@@ -46,9 +58,9 @@ REM ---- IKINCI TUR (kalanlar icin) ----
 echo.
 echo [2. TUR - kalan run'lari zorla durdur]
 call :nuke_account "%GH1_USER%" "%GH1_REPO%" "%GH1_TOKEN%"
-if not "%GH2_WORKFLOW_ID%"=="" (
-    call :nuke_account "%GH2_USER%" "%GH2_REPO%" "%GH2_TOKEN%"
-)
+if not "%GH2_WORKFLOW_ID%"=="" call :nuke_account "%GH2_USER%" "%GH2_REPO%" "%GH2_TOKEN%"
+if not "%GH3_WORKFLOW_ID%"=="" call :nuke_account "%GH3_USER%" "%GH3_REPO%" "%GH3_TOKEN%"
+if not "%GH4_WORKFLOW_ID%"=="" call :nuke_account "%GH4_USER%" "%GH4_REPO%" "%GH4_TOKEN%"
 
 echo.
 echo =====================================================
