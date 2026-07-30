@@ -1,10 +1,10 @@
 @echo off
 REM ================================================================
-REM  🛑 MULTI-ACCOUNT ATTACK STOPPER
-REM  Her iki hesabin (Forest + Stranic000) calisan/kuyruk run'larini iptal eder
+REM  AGRESIF MULTI-ACCOUNT STOPPER
+REM  Cancel + Force-Cancel + Retry + Eski run temizligi
 REM ================================================================
 setlocal enabledelayedexpansion
-chcp 65001 >nul
+chcp 65001 >nul 2>&1
 
 if exist "config\secrets.bat" (
     call config\secrets.bat
@@ -18,27 +18,41 @@ if exist "config\secrets.bat" (
 
 echo.
 echo =====================================================
-echo   MULTI-ACCOUNT TESTLERI DURDURUCU
+echo   AGRESIF MULTI-ACCOUNT STOPPER
+echo   Cancel + Force-Cancel + Retry
 echo =====================================================
 echo.
 
 REM ---- HESAP 1 ----
-echo [Hesap 1] %GH1_USER%/%GH1_REPO% run'lari araniyor...
-call :cancel_runs "%GH1_USER%" "%GH1_REPO%" "%GH1_TOKEN%"
+echo [Hesap 1] %GH1_USER%/%GH1_REPO%
+call :nuke_account "%GH1_USER%" "%GH1_REPO%" "%GH1_TOKEN%"
 
-REM ---- HESAP 2 (varsa) ----
+REM ---- HESAP 2 ----
 if not "%GH2_WORKFLOW_ID%"=="" (
     echo.
-    echo [Hesap 2] %GH2_USER%/%GH2_REPO% run'lari araniyor...
-    call :cancel_runs "%GH2_USER%" "%GH2_REPO%" "%GH2_TOKEN%"
+    echo [Hesap 2] %GH2_USER%/%GH2_REPO%
+    call :nuke_account "%GH2_USER%" "%GH2_REPO%" "%GH2_TOKEN%"
 ) else (
-    echo.
     echo [Hesap 2] Setup edilmemis, atlaniyor.
 )
 
 echo.
 echo =====================================================
-echo   ISLEM TAMAM. Actions sekmesinden dogrulayin:
+echo   3 saniye bekleyip tekrar kontrol ediliyor...
+echo =====================================================
+timeout /t 3 /nobreak >nul
+
+REM ---- IKINCI TUR (kalanlar icin) ----
+echo.
+echo [2. TUR - kalan run'lari zorla durdur]
+call :nuke_account "%GH1_USER%" "%GH1_REPO%" "%GH1_TOKEN%"
+if not "%GH2_WORKFLOW_ID%"=="" (
+    call :nuke_account "%GH2_USER%" "%GH2_REPO%" "%GH2_TOKEN%"
+)
+
+echo.
+echo =====================================================
+echo   TAMAMLANDI. Kontrol et:
 echo     https://github.com/%GH1_USER%/%GH1_REPO%/actions
 if not "%GH2_WORKFLOW_ID%"=="" (
     echo     https://github.com/%GH2_USER%/%GH2_REPO%/actions
@@ -48,44 +62,31 @@ pause
 exit /b 0
 
 REM ================================================================
-REM  SUBROUTINE: cancel_runs USER REPO TOKEN
+:nuke_account
 REM ================================================================
-:cancel_runs
 set "USR=%~1"
 set "REPO=%~2"
 set "TOK=%~3"
 
-REM Calisan run'lar
-for /f "tokens=*" %%R in ('curl -sS -H "Authorization: token %TOK%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%USR%/%REPO%/actions/runs?status=in_progress&per_page=20" ^| findstr /R "\"id\": [0-9]*,$"') do (
-    set "LINE=%%R"
-    for /f "tokens=2 delims=:," %%I in ("!LINE!") do (
-        set "RUN_ID=%%I"
-        set "RUN_ID=!RUN_ID: =!"
-        echo   Durduruluyor (in_progress): !RUN_ID!
-        curl -sS -X POST -H "Authorization: token %TOK%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%USR%/%REPO%/actions/runs/!RUN_ID!/cancel" -o nul
-    )
+REM --- in_progress ---
+for /f "tokens=*" %%R in ('powershell -NoProfile -Command "$h=@{Authorization='token %TOK%';Accept='application/vnd.github+json'}; try { $r=Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs?status=in_progress&per_page=30' -Headers $h -TimeoutSec 10; $r.workflow_runs | ForEach-Object { Write-Host $_.id } } catch {}"') do (
+    echo   Cancel: run %%R
+    powershell -NoProfile -Command "$h=@{Authorization='token %TOK%';Accept='application/vnd.github+json'}; try { Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs/%%R/cancel' -Method Post -Headers $h -TimeoutSec 5 } catch {}; try { Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs/%%R/force-cancel' -Method Post -Headers $h -TimeoutSec 5 } catch {}" >nul 2>&1
+    echo     done
 )
 
-REM Kuyruktakiler
-for /f "tokens=*" %%R in ('curl -sS -H "Authorization: token %TOK%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%USR%/%REPO%/actions/runs?status=queued&per_page=20" ^| findstr /R "\"id\": [0-9]*,$"') do (
-    set "LINE=%%R"
-    for /f "tokens=2 delims=:," %%I in ("!LINE!") do (
-        set "RUN_ID=%%I"
-        set "RUN_ID=!RUN_ID: =!"
-        echo   Durduruluyor (queued): !RUN_ID!
-        curl -sS -X POST -H "Authorization: token %TOK%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%USR%/%REPO%/actions/runs/!RUN_ID!/cancel" -o nul
-    )
+REM --- queued ---
+for /f "tokens=*" %%R in ('powershell -NoProfile -Command "$h=@{Authorization='token %TOK%';Accept='application/vnd.github+json'}; try { $r=Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs?status=queued&per_page=30' -Headers $h -TimeoutSec 10; $r.workflow_runs | ForEach-Object { Write-Host $_.id } } catch {}"') do (
+    echo   Cancel queued: run %%R
+    powershell -NoProfile -Command "$h=@{Authorization='token %TOK%';Accept='application/vnd.github+json'}; try { Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs/%%R/cancel' -Method Post -Headers $h -TimeoutSec 5 } catch {}; try { Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs/%%R/force-cancel' -Method Post -Headers $h -TimeoutSec 5 } catch {}" >nul 2>&1
+    echo     done
 )
 
-REM Bekleyen (waiting) run'lar
-for /f "tokens=*" %%R in ('curl -sS -H "Authorization: token %TOK%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%USR%/%REPO%/actions/runs?status=waiting&per_page=20" ^| findstr /R "\"id\": [0-9]*,$"') do (
-    set "LINE=%%R"
-    for /f "tokens=2 delims=:," %%I in ("!LINE!") do (
-        set "RUN_ID=%%I"
-        set "RUN_ID=!RUN_ID: =!"
-        echo   Durduruluyor (waiting): !RUN_ID!
-        curl -sS -X POST -H "Authorization: token %TOK%" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/%USR%/%REPO%/actions/runs/!RUN_ID!/cancel" -o nul
-    )
+REM --- waiting ---
+for /f "tokens=*" %%R in ('powershell -NoProfile -Command "$h=@{Authorization='token %TOK%';Accept='application/vnd.github+json'}; try { $r=Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs?status=waiting&per_page=30' -Headers $h -TimeoutSec 10; $r.workflow_runs | ForEach-Object { Write-Host $_.id } } catch {}"') do (
+    echo   Cancel waiting: run %%R
+    powershell -NoProfile -Command "$h=@{Authorization='token %TOK%';Accept='application/vnd.github+json'}; try { Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs/%%R/cancel' -Method Post -Headers $h -TimeoutSec 5 } catch {}; try { Invoke-RestMethod -Uri 'https://api.github.com/repos/%USR%/%REPO%/actions/runs/%%R/force-cancel' -Method Post -Headers $h -TimeoutSec 5 } catch {}" >nul 2>&1
+    echo     done
 )
 
 exit /b 0

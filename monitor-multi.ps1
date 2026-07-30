@@ -1,6 +1,6 @@
 # ================================================================
-# 🎯 MULTI-ACCOUNT CANLI MONITÖR
-# İki GitHub hesabındaki paralel run'ları eş zamanlı takip eder
+#  MULTI-ACCOUNT CANLI MONITOR
+#  Iki GitHub hesabindaki paralel run'lari es zamanli takip eder
 # ================================================================
 
 param(
@@ -8,8 +8,9 @@ param(
 )
 
 $ErrorActionPreference = "SilentlyContinue"
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
-# Secrets yükle (batch dosyasını parse et — once .bat sonra .env)
+# Secrets yukle (once .bat sonra .env)
 $secretsPath = $null
 $tryBat = Join-Path $PSScriptRoot "config\secrets.bat"
 $tryEnv = Join-Path $PSScriptRoot "config\secrets.env"
@@ -28,15 +29,14 @@ Get-Content $secretsPath | ForEach-Object {
     }
 }
 
-$accounts = @(
-    @{
-        Name  = "Hesap 1"
-        User  = $secrets['GH1_USER']
-        Repo  = $secrets['GH1_REPO']
-        Token = $secrets['GH1_TOKEN']
-        Color = "Cyan"
-    }
-)
+$accounts = @()
+$accounts += @{
+    Name  = "Hesap 1"
+    User  = $secrets['GH1_USER']
+    Repo  = $secrets['GH1_REPO']
+    Token = $secrets['GH1_TOKEN']
+    Color = "Cyan"
+}
 
 # Hesap 2 varsa ekle
 if ($secrets['GH2_WORKFLOW_ID']) {
@@ -89,10 +89,10 @@ function Get-Icon {
 }
 
 Write-Host ""
-Write-Host "╔════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
-Write-Host "║       💥 MEGA MULTI-ACCOUNT MONITÖR — Distributed Load Test           ║" -ForegroundColor Yellow
-Write-Host "║       $($accounts.Count) hesap × 20 bot = kombine görünüm                            ║" -ForegroundColor Yellow
-Write-Host "╚════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+Write-Host "=========================================================================" -ForegroundColor Yellow
+Write-Host "       MEGA MULTI-ACCOUNT MONITOR - Distributed Load Test" -ForegroundColor Yellow
+Write-Host "       $($accounts.Count) hesap x 20 bot = kombine gorunum" -ForegroundColor Yellow
+Write-Host "=========================================================================" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Baslamasi bekleniyor..." -ForegroundColor Yellow
 Start-Sleep -Seconds 5
@@ -104,9 +104,9 @@ while ($true) {
     try {
         Clear-Host
         Write-Host ""
-        Write-Host "╔════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
-        Write-Host "║       💥 MEGA MULTI-ACCOUNT MONITÖR                                    ║" -ForegroundColor Yellow
-        Write-Host "╚════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+        Write-Host "=========================================================================" -ForegroundColor Yellow
+        Write-Host "       MEGA MULTI-ACCOUNT MONITOR" -ForegroundColor Yellow
+        Write-Host "=========================================================================" -ForegroundColor Yellow
 
         $elapsed = (Get-Date) - $startTime
         Write-Host "  Toplam gecen: $($elapsed.ToString('mm\:ss'))" -ForegroundColor Gray
@@ -121,9 +121,9 @@ while ($true) {
         $allCompleted = $true
 
         foreach ($account in $accounts) {
-            Write-Host "  ┌─────────────────────────────────────────────────────────────────────┐" -ForegroundColor $account.Color
-            Write-Host "  │  $($account.Name.PadRight(10)) $($account.User.PadRight(20)) │" -ForegroundColor $account.Color
-            Write-Host "  └─────────────────────────────────────────────────────────────────────┘" -ForegroundColor $account.Color
+            Write-Host "  ---------------------------------------------------------------------" -ForegroundColor $account.Color
+            Write-Host "   $($account.Name.PadRight(10)) $($account.User.PadRight(20))" -ForegroundColor $account.Color
+            Write-Host "  ---------------------------------------------------------------------" -ForegroundColor $account.Color
 
             $runData = Get-LatestRun -account $account
             if (-not $runData -or -not $runData.workflow_runs -or $runData.workflow_runs.Count -eq 0) {
@@ -142,8 +142,14 @@ while ($true) {
 
             $jobs = $jobsData.jobs | Where-Object { $_.name -like "bot-*" } | Sort-Object { [int]($_.name -replace 'bot-','') }
 
-            $runElapsed = if ($run.run_started_at) { (Get-Date) - [DateTime]$run.run_started_at } else { [TimeSpan]::Zero }
-            $statusText = if ($run.conclusion) { "$($run.status) → $($run.conclusion)" } else { $run.status }
+            $runElapsed = [TimeSpan]::Zero
+            if ($run.run_started_at) {
+                $runElapsed = (Get-Date) - [DateTime]$run.run_started_at
+            }
+            $statusText = $run.status
+            if ($run.conclusion) {
+                $statusText = "$($run.status) -> $($run.conclusion)"
+            }
             Write-Host "    Run #$($run.id)  |  $statusText  |  $($runElapsed.ToString('mm\:ss'))" -ForegroundColor $account.Color
 
             $total = $jobs.Count
@@ -163,7 +169,7 @@ while ($true) {
                 }
             }
 
-            # Bot grid (5x4)
+            # Bot grid
             $line = "    "
             $count = 0
             foreach ($j in $jobs) {
@@ -187,19 +193,22 @@ while ($true) {
             $grandFailed += $failed
             $grandQueued += $queued
 
-            if ($run.status -ne "completed") { $allCompleted = $false }
-            else { $completedAccounts[$account.Name] = $true }
+            if ($run.status -ne "completed") {
+                $allCompleted = $false
+            } else {
+                $completedAccounts[$account.Name] = $true
+            }
         }
 
         # Grand total
-        Write-Host "╔═════════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
-        Write-Host "║  🎯 GRAND TOTAL                                                     ║" -ForegroundColor Green
-        Write-Host "╚═════════════════════════════════════════════════════════════════════╝" -ForegroundColor Green
-        Write-Host "  Toplam bot   : $grandTotal" -ForegroundColor White
-        Write-Host "  Calisan (fire): $grandRunning" -ForegroundColor Green
-        Write-Host "  Basarili     : $grandSuccess" -ForegroundColor Cyan
-        Write-Host "  Basarisiz    : $grandFailed" -ForegroundColor Red
-        Write-Host "  Kuyrukta     : $grandQueued" -ForegroundColor Yellow
+        Write-Host "=========================================================================" -ForegroundColor Green
+        Write-Host "  GRAND TOTAL" -ForegroundColor Green
+        Write-Host "=========================================================================" -ForegroundColor Green
+        Write-Host "  Toplam bot    : $grandTotal" -ForegroundColor White
+        Write-Host "  Calisan       : $grandRunning" -ForegroundColor Green
+        Write-Host "  Basarili      : $grandSuccess" -ForegroundColor Cyan
+        Write-Host "  Basarisiz     : $grandFailed" -ForegroundColor Red
+        Write-Host "  Kuyrukta      : $grandQueued" -ForegroundColor Yellow
 
         if ($grandTotal -gt 0) {
             $pct = [Math]::Floor(($grandCompleted / $grandTotal) * 100)
@@ -213,17 +222,17 @@ while ($true) {
         Write-Host ""
 
         if ($allCompleted -and $accounts.Count -eq $completedAccounts.Count) {
-            Write-Host "  ✨ TÜM HESAPLARDA TESTLER TAMAMLANDI!" -ForegroundColor Green
+            Write-Host "  *** TUM HESAPLARDA TESTLER TAMAMLANDI! ***" -ForegroundColor Green
             Write-Host ""
             foreach ($account in $accounts) {
-                Write-Host "  📊 $($account.Name) sonuclari:" -ForegroundColor $account.Color
+                Write-Host "  $($account.Name) sonuclari:" -ForegroundColor $account.Color
                 Write-Host "     https://github.com/$($account.User)/$($account.Repo)/actions" -ForegroundColor DarkGray
             }
             Write-Host ""
             break
         }
 
-        Write-Host "  ⏱️  Sonraki guncelleme: $RefreshSec sn  |  Cikis: Ctrl+C" -ForegroundColor DarkGray
+        Write-Host "  Sonraki guncelleme: $RefreshSec sn  |  Cikis: Ctrl+C" -ForegroundColor DarkGray
         Start-Sleep -Seconds $RefreshSec
     }
     catch {

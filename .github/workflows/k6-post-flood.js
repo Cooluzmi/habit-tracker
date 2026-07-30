@@ -176,33 +176,16 @@ function buildBody(endpoint) {
     const type = endpoint.type;
 
     if (type === 'wp_login') {
-        const params = new URLSearchParams();
-        params.append('log', randomItem(COMMON_USERNAMES));
-        params.append('pwd', randomItem(COMMON_PASSWORDS));
-        params.append('wp-submit', 'Log In');
-        params.append('redirect_to', TARGET_URL + '/wp-admin/');
-        params.append('testcookie', '1');
-        return params.toString();
+        return `log=${encodeURIComponent(randomItem(COMMON_USERNAMES))}&pwd=${encodeURIComponent(randomItem(COMMON_PASSWORDS))}&wp-submit=Log+In&redirect_to=${encodeURIComponent(TARGET_URL + '/wp-admin/')}&testcookie=1`;
     }
 
     if (type === 'wp_ajax') {
         const actions = ['wc_ajax_get_refreshed_fragments', 'heartbeat', 'load-scripts', 'load-styles', 'query-attachments'];
-        const params = new URLSearchParams();
-        params.append('action', randomItem(actions));
-        params.append('_wpnonce', randomString(10, 'abcdef0123456789'));
-        params.append('data', randomString(randomIntBetween(50, 500)));
-        return params.toString();
+        return `action=${randomItem(actions)}&_wpnonce=${randomString(10, 'abcdef0123456789')}&data=${encodeURIComponent(randomString(randomIntBetween(50, 500)))}`;
     }
 
     if (type === 'wp_comment') {
-        const params = new URLSearchParams();
-        params.append('author', randomString(10));
-        params.append('email', `${randomString(8)}@${randomString(6)}.com`);
-        params.append('url', `https://${randomString(10)}.com`);
-        params.append('comment', randomString(randomIntBetween(50, 300)));
-        params.append('comment_post_ID', randomIntBetween(1, 1000).toString());
-        params.append('comment_parent', '0');
-        return params.toString();
+        return `author=${encodeURIComponent(randomString(10))}&email=${encodeURIComponent(randomString(8) + '@' + randomString(6) + '.com')}&url=${encodeURIComponent('https://' + randomString(10) + '.com')}&comment=${encodeURIComponent(randomString(randomIntBetween(50, 300)))}&comment_post_ID=${randomIntBetween(1, 1000)}&comment_parent=0`;
     }
 
     if (type === 'xmlrpc') {
@@ -339,11 +322,7 @@ function buildBody(endpoint) {
     }
 
     if (type === 'woo_cart') {
-        const params = new URLSearchParams();
-        params.append('product_id', randomIntBetween(1, 1000).toString());
-        params.append('quantity', randomIntBetween(1, 10).toString());
-        params.append('variation_id', randomIntBetween(1, 500).toString());
-        return params.toString();
+        return `product_id=${randomIntBetween(1, 1000)}&quantity=${randomIntBetween(1, 10)}&variation_id=${randomIntBetween(1, 500)}`;
     }
 
     if (type === 'upload') {
