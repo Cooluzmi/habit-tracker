@@ -1,0 +1,184 @@
+# ================================================================
+# 🔥 Distributed Load Test — 20 Paralel Runner
+#
+# Manuel tetiklenir (workflow_dispatch)
+# Actions sekmesinden URL, süre, VU parametreleri girilir
+# 20 paralel job spawn olur, her biri k6 çalıştırır
+# Toplam: ~130.000 req/s / ~3 Gbps
+#
+# YALNIZCA KENDİ SAHİBİ OLDUĞUNUZ SİSTEMLERE YAPIN
+# ================================================================
+
+name: Distributed Load Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Hedef URL (https://ornek.com)'
+        required: true
+        default: 'https://hhh.frostai.com.tr'
+        type: string
+      duration:
+        description: 'Test süresi (örn: 60s, 3m, 5m)'
+        required: true
+        default: '60s'
+        type: string
+      vus_per_runner:
+        description: 'Her runner başına VU sayısı (max 500)'
+        required: true
+        default: '200'
+        type: string
+      rps_per_runner:
+        description: 'Her runner başına hedef RPS (0 = maksimum)'
+        required: true
+        default: '0'
+        type: string
+      parallel_jobs:
+        description: 'Paralel runner sayısı (max 20)'
+        required: true
+        default: '20'
+        type: string
+
+jobs:
+  loadtest:
+    name: bot-${{ matrix.bot_id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        bot_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+    steps:
+      - name: 🤖 Bot Info
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "  BOT #${{ matrix.bot_id }} baslatiliyor"
+          echo "  Hedef: ${{ inputs.target_url }}"
+          echo "  Süre : ${{ inputs.duration }}"
+          echo "  VU   : ${{ inputs.vus_per_runner }}"
+          echo "  RPS  : ${{ inputs.rps_per_runner }}"
+          echo "  Runner IP: $(curl -s ifconfig.me)"
+          echo "═══════════════════════════════════════"
+
+      - name: 🚫 Skip if not in scope
+        if: matrix.bot_id > fromJson(inputs.parallel_jobs)
+        run: |
+          echo "Bu bot devre disi (parallel_jobs=${{ inputs.parallel_jobs }})"
+          exit 0
+
+      - name: 📥 Checkout
+        if: matrix.bot_id <= fromJson(inputs.parallel_jobs)
+        uses: actions/checkout@v4
+
+      - name: 🔧 Install k6
+        if: matrix.bot_id <= fromJson(inputs.parallel_jobs)
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: ⚙️ Tune OS network limits
+        if: matrix.bot_id <= fromJson(inputs.parallel_jobs)
+        run: |
+          # TCP port range genislet
+          sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"
+          # TIME_WAIT sock reuse
+          sudo sysctl -w net.ipv4.tcp_tw_reuse=1
+          # FIN timeout kisalt
+          sudo sysctl -w net.ipv4.tcp_fin_timeout=15
+          # File descriptor limit
+          ulimit -n 65535
+          echo "OS ayarlari yapildi"
+
+      - name: 🔥 Run k6 Load Test
+        if: matrix.bot_id <= fromJson(inputs.parallel_jobs)
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+          DURATION: ${{ inputs.duration }}
+          VUS: ${{ inputs.vus_per_runner }}
+          RPS: ${{ inputs.rps_per_runner }}
+          BOT_ID: ${{ matrix.bot_id }}
+        run: |
+          mkdir -p reports
+          k6 run \
+            --vus $VUS \
+            --duration $DURATION \
+            --rps $([[ "$RPS" -gt 0 ]] && echo "$RPS" || echo "1000000") \
+            --tag bot_id=$BOT_ID \
+            --summary-export=reports/bot-${BOT_ID}-summary.json \
+            --out json=reports/bot-${BOT_ID}-raw.json \
+            .github/workflows/k6-script.js
+
+      - name: 📊 Upload results
+        if: always() && matrix.bot_id <= fromJson(inputs.parallel_jobs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-${{ matrix.bot_id }}-results
+          path: reports/
+          retention-days: 7
+
+  aggregate:
+    name: 📈 Toplu Rapor
+    runs-on: ubuntu-latest
+    needs: loadtest
+    if: always()
+
+    steps:
+      - name: 📥 Download all results
+        uses: actions/download-artifact@v4
+        with:
+          path: all-results/
+
+      - name: 🧮 Aggregate metrics
+        run: |
+          echo "═══════════════════════════════════════════════════════"
+          echo "  DISTRIBUTED LOAD TEST — TOPLU SONUÇ"
+          echo "  Hedef: ${{ inputs.target_url }}"
+          echo "  Süre : ${{ inputs.duration }}"
+          echo "  Bot  : ${{ inputs.parallel_jobs }}"
+          echo "═══════════════════════════════════════════════════════"
+
+          total_reqs=0
+          total_fail=0
+          total_bytes=0
+
+          for f in all-results/*/bot-*-summary.json; do
+            [ -f "$f" ] || continue
+            reqs=$(jq -r '.metrics.http_reqs.count // .metrics.http_reqs.values.count // 0' "$f")
+            fails=$(jq -r '.metrics.http_req_failed.rate // .metrics.http_req_failed.values.rate // 0' "$f")
+            bytes=$(jq -r '.metrics.data_received.count // .metrics.data_received.values.count // 0' "$f")
+            echo "  → $(basename $(dirname $f)): $reqs istek, ${bytes} byte"
+            total_reqs=$((total_reqs + ${reqs%.*}))
+            total_bytes=$((total_bytes + ${bytes%.*}))
+          done
+
+          echo ""
+          echo "═══════════════════════════════════════════════════════"
+          echo "  📊 GENEL TOPLAM"
+          echo "═══════════════════════════════════════════════════════"
+          echo "  Toplam istek     : $total_reqs"
+          echo "  Toplam data      : $((total_bytes / 1024 / 1024)) MB"
+          echo "  Toplam data      : $((total_bytes / 1024 / 1024 / 1024)) GB"
+
+          # Süre saniye çevir (60s, 3m gibi)
+          duration_input="${{ inputs.duration }}"
+          if [[ "$duration_input" == *m ]]; then
+            duration_sec=$((${duration_input%m} * 60))
+          elif [[ "$duration_input" == *s ]]; then
+            duration_sec=${duration_input%s}
+          else
+            duration_sec=60
+          fi
+
+          if [ $duration_sec -gt 0 ]; then
+            rps=$((total_reqs / duration_sec))
+            gbps=$(echo "scale=2; $total_bytes * 8 / $duration_sec / 1000000000" | bc)
+            echo "  Ortalama RPS     : $rps req/s"
+            echo "  Ortalama Bandwidth: $gbps Gbps"
+          fi
+          echo "═══════════════════════════════════════════════════════"
