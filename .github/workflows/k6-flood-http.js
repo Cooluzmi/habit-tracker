@@ -451,7 +451,7 @@ export function setup() {
 }
 
 // ================================================================
-// LIVE PROGRESS LOGGER — her 5 sn'de bir stdout'a canlı durum yaz
+// LIVE PROGRESS LOGGER + NTFY REPORTER
 // ================================================================
 let __lastProgressLog = 0;
 let __localReqs = 0;
@@ -459,6 +459,10 @@ let __local2xx = 0;
 let __local5xx = 0;
 let __local429 = 0;
 let __localFail = 0;
+
+const REPORT_CHANNEL = __ENV.REPORT_CHANNEL || '';
+const ACCOUNT_NAME = __ENV.ACCOUNT_NAME || 'unknown';
+const NTFY_URL = REPORT_CHANNEL ? `https://ntfy.sh/${REPORT_CHANNEL}` : '';
 
 function logProgress(res) {
     __localReqs++;
@@ -482,6 +486,18 @@ function logProgress(res) {
     const pct429 = __localReqs > 0 ? Math.floor((__local429 / __localReqs) * 100) : 0;
 
     console.log(`[LIVE bot=${BOT_ID}] t=${elapsed}s | iters=${iters} | vus=${vusActive} | rps~${rps} | 2xx=${pct2xx}% 5xx=${pct5xx}% 429=${pct429}% | last=${res.status}`);
+
+    // ntfy.sh'e POST (k6 içinden doğrudan)
+    if (NTFY_URL && elapsed > 5) {
+        const mbps = Math.floor(rps * 1400 * 8 / 1000000);
+        try {
+            http.post(NTFY_URL, JSON.stringify({
+                bot_id: BOT_ID, account: ACCOUNT_NAME, type: 'L7',
+                rps: rps, mbps: mbps, reqs: iters, vus: vusActive,
+                elapsed: elapsed, pct2xx: pct2xx, pct5xx: pct5xx, pct429: pct429
+            }), { headers: { 'Title': 'metric', 'Content-Type': 'application/json' }, tags: { name: 'ntfy_report' }, timeout: '3s' });
+        } catch (e) { /* skip */ }
+    }
 }
 
 // ================================================================
