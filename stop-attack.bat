@@ -48,6 +48,13 @@ if not "%GH4_WORKFLOW_ID%"=="" (
     call :nuke_account "%GH4_USER%" "%GH4_REPO%" "%GH4_TOKEN%"
 )
 
+REM ---- HESAP 5 ----
+if not "%GH5_WORKFLOW_ID%"=="" (
+    echo.
+    echo [Hesap 5] %GH5_USER%/%GH5_REPO%
+    call :nuke_account "%GH5_USER%" "%GH5_REPO%" "%GH5_TOKEN%"
+)
+
 echo.
 echo =====================================================
 echo   3 saniye bekleyip tekrar kontrol ediliyor...
@@ -61,6 +68,7 @@ call :nuke_account "%GH1_USER%" "%GH1_REPO%" "%GH1_TOKEN%"
 if not "%GH2_WORKFLOW_ID%"=="" call :nuke_account "%GH2_USER%" "%GH2_REPO%" "%GH2_TOKEN%"
 if not "%GH3_WORKFLOW_ID%"=="" call :nuke_account "%GH3_USER%" "%GH3_REPO%" "%GH3_TOKEN%"
 if not "%GH4_WORKFLOW_ID%"=="" call :nuke_account "%GH4_USER%" "%GH4_REPO%" "%GH4_TOKEN%"
+if not "%GH5_WORKFLOW_ID%"=="" call :nuke_account "%GH5_USER%" "%GH5_REPO%" "%GH5_TOKEN%"
 
 echo.
 echo =====================================================

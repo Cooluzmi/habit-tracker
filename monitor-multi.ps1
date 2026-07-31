@@ -71,6 +71,17 @@ if ($secrets['GH4_WORKFLOW_ID']) {
     }
 }
 
+# Hesap 5 varsa ekle
+if ($secrets['GH5_WORKFLOW_ID']) {
+    $accounts += @{
+        Name  = "Hesap 5"
+        User  = $secrets['GH5_USER']
+        Repo  = $secrets['GH5_REPO']
+        Token = $secrets['GH5_TOKEN']
+        Color = "White"
+    }
+}
+
 function Get-LatestRun {
     param($account)
     try {

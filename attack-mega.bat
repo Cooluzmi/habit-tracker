@@ -35,6 +35,8 @@ set "GH3_READY=1"
 if "%GH3_WORKFLOW_ID%"=="" set "GH3_READY=0"
 set "GH4_READY=1"
 if "%GH4_WORKFLOW_ID%"=="" set "GH4_READY=0"
+set "GH5_READY=1"
+if "%GH5_WORKFLOW_ID%"=="" set "GH5_READY=0"
 
 echo.
 echo ╔══════════════════════════════════════════════════════╗
@@ -44,6 +46,7 @@ echo ║   Hesap 1: %GH1_USER%  [READY]              ║
 echo ║   Hesap 2: %GH2_USER%  [!GH2_READY!]        ║
 echo ║   Hesap 3: %GH3_USER%  [!GH3_READY!]        ║
 echo ║   Hesap 4: %GH4_USER%  [!GH4_READY!]        ║
+echo ║   Hesap 5: %GH5_USER%  [!GH5_READY!]        ║
 echo ╚══════════════════════════════════════════════════════╝
 echo.
 
@@ -156,18 +159,21 @@ set /a "B1=!JOBS!"
 set /a "B2=!JOBS! * 2"
 set /a "B3=!JOBS! * 3"
 set /a "B4=!JOBS! * 4"
+set /a "B5=!JOBS! * 5"
 echo     [1] 1 hesap (Forest)              = !B1! bot
 echo     [2] 2 hesap (Forest+Stranic)      = !B2! bot
 echo     [3] 3 hesap (+Rapid)              = !B3! bot
-echo     [4] 4 hesap (TUM HESAPLAR)        = !B4! bot  MAX
+echo     [4] 4 hesap (+Cooluzmi)           = !B4! bot
+echo     [5] 5 hesap (TUM HESAPLAR)        = !B5! bot  MAX
 echo.
-set /p HESAP_SEC="Hesap sayisi (1-4) [4]: "
-if "%HESAP_SEC%"=="" set "HESAP_SEC=4"
+set /p HESAP_SEC="Hesap sayisi (1-5) [5]: "
+if "%HESAP_SEC%"=="" set "HESAP_SEC=5"
 
 set "USE_ACCOUNTS=1"
 if "%HESAP_SEC%"=="2" set "USE_ACCOUNTS=2"
 if "%HESAP_SEC%"=="3" set "USE_ACCOUNTS=3"
 if "%HESAP_SEC%"=="4" set "USE_ACCOUNTS=4"
+if "%HESAP_SEC%"=="5" set "USE_ACCOUNTS=5"
 
 REM ================ MENU 5: ONAY ================
 echo.
@@ -186,6 +192,7 @@ echo   Hesaplar    : %GH1_USER%
 if !USE_ACCOUNTS! GEQ 2 echo                 + %GH2_USER%
 if !USE_ACCOUNTS! GEQ 3 echo                 + %GH3_USER%
 if !USE_ACCOUNTS! GEQ 4 echo                 + %GH4_USER%
+if !USE_ACCOUNTS! GEQ 5 echo                 + %GH5_USER%
 echo   RPS limit   : !RPS!
 echo ══════════════════════════════════════════════════════
 echo.
