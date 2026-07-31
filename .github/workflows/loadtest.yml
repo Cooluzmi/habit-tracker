@@ -64,6 +64,7 @@ on:
           - post
           - adaptive
           - l4
+          - l4test
           - legacy
 
 jobs:
@@ -156,6 +157,10 @@ jobs:
               echo "script=L4_MODE" >> $GITHUB_OUTPUT
               echo "mode_desc=L4 TCP/UDP FLOOD (Python socket)" >> $GITHUB_OUTPUT
               ;;
+            l4test)
+              echo "script=L4_TEST" >> $GITHUB_OUTPUT
+              echo "mode_desc=L4 RAW SOCKET TEST (hping3/scapy/raw)" >> $GITHUB_OUTPUT
+              ;;
             *)
               echo "script=.github/workflows/k6-flood-http.js" >> $GITHUB_OUTPUT
               echo "mode_desc=DEFAULT flood" >> $GITHUB_OUTPUT
@@ -185,8 +190,14 @@ jobs:
           echo "============================================================="
           echo ""
 
-          # L4 modu: k6 yerine Python script calistir
-          if [[ "${{ inputs.attack_mode }}" == "l4" ]]; then
+          # L4 test modu
+          if [[ "${{ inputs.attack_mode }}" == "l4test" ]]; then
+            echo ">>> L4 RAW SOCKET CAPABILITY TEST <<<"
+            sudo apt-get update -qq && sudo apt-get install -y -qq hping3 nmap 2>/dev/null || true
+            pip install -q scapy 2>/dev/null || true
+            sudo python3 -u .github/workflows/l4-raw-test.py
+            echo "Test tamamlandi"
+          elif [[ "${{ inputs.attack_mode }}" == "l4" ]]; then
             echo ">>> L4 TCP/UDP FLOOD MODE <<<"
             python3 -u .github/workflows/l4-flood.py
             echo "L4 flood tamamlandi"
