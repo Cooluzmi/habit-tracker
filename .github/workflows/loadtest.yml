@@ -199,46 +199,44 @@ jobs:
 
           # Reporter — LIVE satirlarini parse edip ntfy.sh'e POST eder
           if [ -n "$NTFY_URL" ]; then
-            cat > /tmp/reporter.sh << 'REPORTER_EOF'
-          #!/bin/bash
-          LOGFILE="$1"
-          NTFY="$2"
-          BOTID="$3"
-          ACCOUNT="$4"
-          while true; do
-            sleep 5
-            [ ! -f "$LOGFILE" ] && continue
-            LAST=$(grep -E '\[LIVE' "$LOGFILE" 2>/dev/null | tail -1)
-            [ -z "$LAST" ] && continue
-            if echo "$LAST" | grep -q 'rps~'; then
-              ELAPSED=$(echo "$LAST" | grep -oP 't=\K\d+')
-              ITERS=$(echo "$LAST" | grep -oP 'iters=\K\d+')
-              VUS_N=$(echo "$LAST" | grep -oP 'vus=\K\d+')
-              RPS_N=$(echo "$LAST" | grep -oP 'rps~\K\d+')
-              P2XX=$(echo "$LAST" | grep -oP '2xx=\K\d+')
-              P5XX=$(echo "$LAST" | grep -oP '5xx=\K\d+')
-              P429=$(echo "$LAST" | grep -oP '429=\K\d+')
-              MBPS=$((RPS_N * 1400 * 8 / 1000000))
-              curl -sS -X POST "$NTFY" \
-                -H "Title: metric" \
-                -d "{\"bot_id\":\"$BOTID\",\"account\":\"$ACCOUNT\",\"type\":\"L7\",\"rps\":$RPS_N,\"mbps\":$MBPS,\"reqs\":$ITERS,\"vus\":$VUS_N,\"elapsed\":$ELAPSED,\"pct2xx\":${P2XX:-0},\"pct5xx\":${P5XX:-0},\"pct429\":${P429:-0}}" \
-                -o /dev/null 2>/dev/null || true
-            fi
-            if echo "$LAST" | grep -q 'LIVE L4'; then
-              ELAPSED=$(echo "$LAST" | grep -oP 't=\K\d+')
-              UDP=$(echo "$LAST" | grep -oP 'udp=\K\d+')
-              RAW=$(echo "$LAST" | grep -oP 'raw=\K\d+')
-              PPS=$(echo "$LAST" | grep -oP 'pps=\K\d+')
-              MBPS=$(echo "$LAST" | grep -oP '\K\d+(?=\s*Mbps)')
-              TOTAL=$((UDP + RAW))
-              curl -sS -X POST "$NTFY" \
-                -H "Title: metric" \
-                -d "{\"bot_id\":\"$BOTID\",\"account\":\"$ACCOUNT\",\"type\":\"L4\",\"pps\":$PPS,\"mbps\":$MBPS,\"reqs\":$TOTAL,\"elapsed\":$ELAPSED}" \
-                -o /dev/null 2>/dev/null || true
-            fi
-          done
-          REPORTER_EOF
-            chmod +x /tmp/reporter.sh
+          cat > /tmp/reporter.sh << 'REPORTER_EOF'
+#!/bin/bash
+LOGFILE="$1"
+NTFY="$2"
+BOTID="$3"
+ACCOUNT="$4"
+while true; do
+  sleep 5
+  [ ! -f "$LOGFILE" ] && continue
+  LAST=$(grep -E '\[LIVE' "$LOGFILE" 2>/dev/null | tail -1)
+  [ -z "$LAST" ] && continue
+  if echo "$LAST" | grep -q 'rps~'; then
+    ELAPSED=$(echo "$LAST" | grep -oP 't=\K\d+')
+    ITERS=$(echo "$LAST" | grep -oP 'iters=\K\d+')
+    VUS_N=$(echo "$LAST" | grep -oP 'vus=\K\d+')
+    RPS_N=$(echo "$LAST" | grep -oP 'rps~\K\d+')
+    P2XX=$(echo "$LAST" | grep -oP '2xx=\K\d+')
+    P5XX=$(echo "$LAST" | grep -oP '5xx=\K\d+')
+    P429=$(echo "$LAST" | grep -oP '429=\K\d+')
+    MBPS=$((RPS_N * 1400 * 8 / 1000000))
+    curl -sS -X POST "$NTFY" -H "Title: metric" \
+      -d "{\"bot_id\":\"$BOTID\",\"account\":\"$ACCOUNT\",\"type\":\"L7\",\"rps\":$RPS_N,\"mbps\":$MBPS,\"reqs\":$ITERS,\"vus\":$VUS_N,\"elapsed\":$ELAPSED,\"pct2xx\":${P2XX:-0},\"pct5xx\":${P5XX:-0},\"pct429\":${P429:-0}}" \
+      -o /dev/null 2>/dev/null || true
+  fi
+  if echo "$LAST" | grep -q 'LIVE L4'; then
+    ELAPSED=$(echo "$LAST" | grep -oP 't=\K\d+')
+    UDP=$(echo "$LAST" | grep -oP 'udp=\K\d+')
+    RAW=$(echo "$LAST" | grep -oP 'raw=\K\d+')
+    PPS=$(echo "$LAST" | grep -oP 'pps=\K\d+')
+    MBPS=$(echo "$LAST" | grep -oP '\K\d+(?=\s*Mbps)')
+    TOTAL=$((UDP + RAW))
+    curl -sS -X POST "$NTFY" -H "Title: metric" \
+      -d "{\"bot_id\":\"$BOTID\",\"account\":\"$ACCOUNT\",\"type\":\"L4\",\"pps\":$PPS,\"mbps\":$MBPS,\"reqs\":$TOTAL,\"elapsed\":$ELAPSED}" \
+      -o /dev/null 2>/dev/null || true
+  fi
+done
+REPORTER_EOF
+          chmod +x /tmp/reporter.sh
           fi
 
           # L4 test modu
