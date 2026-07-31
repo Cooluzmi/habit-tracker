@@ -84,19 +84,21 @@ REM ================ MENU 2: ATTACK MODE ================
 echo.
 echo   [2/5] ATTACK MODE
 echo.
-echo     [1] FLOOD     (multi-endpoint cache-bypass)
-echo     [2] SLOWLORIS (connection pool exhaustion)
-echo     [3] POST      (backend CPU/DB killer)
-echo     [4] ADAPTIVE  (response-aware)
-echo     [5] LEGACY
+echo     [1] FLOOD     (multi-endpoint cache-bypass, L7)
+echo     [2] SLOWLORIS (connection pool exhaustion, L7)
+echo     [3] POST      (backend CPU/DB killer, L7)
+echo     [4] ADAPTIVE  (response-aware, L7)
+echo     [5] L4        (TCP/UDP connection flood)
+echo     [6] LEGACY    (eski basit GET)
 echo.
-set /p MODE_CHOICE="Mode (1-5) [1]: "
+set /p MODE_CHOICE="Mode (1-6) [1]: "
 if "%MODE_CHOICE%"=="" set "MODE_CHOICE=1"
 if "%MODE_CHOICE%"=="1" set "ATTACK_MODE=flood"
 if "%MODE_CHOICE%"=="2" set "ATTACK_MODE=slowloris"
 if "%MODE_CHOICE%"=="3" set "ATTACK_MODE=post"
 if "%MODE_CHOICE%"=="4" set "ATTACK_MODE=adaptive"
-if "%MODE_CHOICE%"=="5" set "ATTACK_MODE=legacy"
+if "%MODE_CHOICE%"=="5" set "ATTACK_MODE=l4"
+if "%MODE_CHOICE%"=="6" set "ATTACK_MODE=legacy"
 if "!ATTACK_MODE!"=="" ( echo Gecersiz mode! & pause & exit /b 1 )
 echo   Mode: !ATTACK_MODE!
 

