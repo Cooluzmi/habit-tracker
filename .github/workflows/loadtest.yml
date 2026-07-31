@@ -198,8 +198,9 @@ jobs:
             sudo python3 -u .github/workflows/l4-raw-test.py
             echo "Test tamamlandi"
           elif [[ "${{ inputs.attack_mode }}" == "l4" ]]; then
-            echo ">>> L4 TCP/UDP FLOOD MODE <<<"
-            python3 -u .github/workflows/l4-flood.py
+            echo ">>> L4 REAL FLOOD MODE (UDP + SYN + RAW) <<<"
+            sudo apt-get install -y -qq hping3 2>/dev/null || true
+            sudo python3 -u .github/workflows/l4-flood.py
             echo "L4 flood tamamlandi"
           elif [[ "${{ inputs.attack_mode }}" == "legacy" ]]; then
             RPS_ARG=$([[ "$RPS" -gt 0 ]] && echo "--rps $RPS" || echo "")
